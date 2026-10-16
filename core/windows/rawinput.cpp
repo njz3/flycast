@@ -257,8 +257,11 @@ static LRESULT CALLBACK rawWindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
 
 	RAWINPUT ri;
 	UINT size = sizeof(ri);
-	if (GET_RAWINPUT_CODE_WPARAM(wParam) != RIM_INPUT  // app isn't in the foreground
-			|| GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &ri, &size, sizeof(RAWINPUTHEADER)) == (UINT)-1)
+	if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &ri, &size, sizeof(RAWINPUTHEADER)) == (UINT)-1
+			// Ignore input received while the app isn't in the foreground, except keyboard input
+			// for a multiboard master since the game may be displayed by a slave window
+			|| (GET_RAWINPUT_CODE_WPARAM(wParam) != RIM_INPUT
+				&& (ri.header.dwType != RIM_TYPEKEYBOARD || !settings.naomi.multiboard || settings.naomi.slave)))
 	{
 		DefWindowProcA(hWnd, msg, wParam, lParam);
 		return 0;
@@ -450,7 +453,8 @@ void init()
 	rid[0].hwndTarget = hWnd;
 	rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
 	rid[0].usUsage = HID_USAGE_GENERIC_MOUSE;
-	rid[1].dwFlags = 0;
+	// Keyboard input is also received in the background. It's ignored unless needed (multiboard master).
+	rid[1].dwFlags = RIDEV_INPUTSINK;
 	rid[1].hwndTarget = hWnd;
 	rid[1].usUsagePage = HID_USAGE_PAGE_GENERIC;
 	rid[1].usUsage = HID_USAGE_GENERIC_KEYBOARD;

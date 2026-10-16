@@ -37,6 +37,7 @@
 #include "hw/holly/sb.h"
 #include "ui/gui.h"
 #include "oslib/i18n.h"
+#include "emulator.h"
 #include <atomic>
 
 using namespace i18n;
@@ -44,6 +45,7 @@ using namespace i18n;
 constexpr int BaseSyncCycles = 836208;	// 4 times per frame
 constexpr u32 G1_BASE = 0x05F7080;
 constexpr u32 G2_BASE = 0x1010000;
+constexpr int MaxBoards = 4;
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -86,90 +88,49 @@ public:
 	IpcMutex& operator=(const IpcMutex&) = delete;
 };
 
+// Each board waits on its own auto-reset event and notify_all() sets all of them.
+// A notification is never lost since an event set before the board waits stays signaled,
+// and a wait that times out leaves no stale state behind (unlike a semaphore-based implementation
+// that counts waiters). Spurious wake-ups can happen so callers must check their predicate.
 class IpcConditionVariable
 {
-	class Semaphore
-	{
-		HANDLE handle;
-
-	public:
-		Semaphore()
-		{
-			SECURITY_ATTRIBUTES secattr{ sizeof(SECURITY_ATTRIBUTES) };
-			secattr.bInheritHandle = TRUE;
-			handle = CreateSemaphore(&secattr, 0, std::numeric_limits<LONG>::max(), NULL);
-			if (handle == NULL)
-				throw std::runtime_error("Semaphore create failed");
-		}
-		~Semaphore() {
-			CloseHandle(handle);
-		}
-
-		bool wait(DWORD msecs = INFINITE)
-		{
-			DWORD rc = WaitForSingleObject(handle, msecs);
-			if (rc == WAIT_ABANDONED || rc == WAIT_FAILED)
-				throw std::runtime_error("Semaphore wait failure");
-			return rc != WAIT_TIMEOUT;
-		}
-
-		void signal(int n = 1) {
-			ReleaseSemaphore(handle, n, nullptr);
-		}
-	};
-
-	Semaphore semaphore;
-	IpcMutex mutex;
-	int waiters = 0;
-	// The unlock/wait/lock in wait() should be atomic so the h semaphore is used
-	// to make sure all processes about to wait (i.e. on the waiters list) are notified before any other.
-	// This race condition happens more frequently with one slave, where one process
-	// notifies the other that everybody is ready and ends up notifying itself,
-	// while the other process waits indefinitely.
-	// See https://birrell.org/andrew/papers/ImplementingCVs.pdf
-	Semaphore h;
-
-	std::cv_status waitMs(std::unique_lock<IpcMutex>& lock, DWORD msecs)
-	{
-		mutex.lock();
-		waiters++;
-		mutex.unlock();
-
-		lock.unlock();
-		std::cv_status status = semaphore.wait(msecs) ?
-				std::cv_status::no_timeout : std::cv_status::timeout;
-		// must be done before re-acquiring the lock
-		h.signal();
-		lock.lock();
-		return status;
-	}
+	HANDLE events[MaxBoards];
 
 public:
-	void notify_all()
+	IpcConditionVariable()
 	{
-		mutex.lock();
-		if (waiters > 0)
+		SECURITY_ATTRIBUTES secattr{ sizeof(SECURITY_ATTRIBUTES) };
+		secattr.bInheritHandle = TRUE;
+		for (HANDLE& event : events)
 		{
-			semaphore.signal(waiters);
-			// make sure waiters are notified before moving on
-			do {
-				h.wait();
-				waiters--;
-			} while (waiters > 0);
+			event = CreateEvent(&secattr, FALSE, FALSE, NULL);
+			if (event == NULL)
+				throw std::runtime_error("CreateEvent failed");
 		}
-		mutex.unlock();
+	}
+	IpcConditionVariable(const IpcConditionVariable&) = delete;
+
+	~IpcConditionVariable() {
+		for (HANDLE event : events)
+			CloseHandle(event);
 	}
 
-	void wait(std::unique_lock<IpcMutex>& lock)
-	{
-		waitMs(lock, INFINITE);
+	void notify_all() {
+		for (HANDLE event : events)
+			SetEvent(event);
 	}
 
 	template<class Rep, class Period>
-	std::cv_status wait_for(std::unique_lock<IpcMutex>& lock,
+	std::cv_status wait_for(std::unique_lock<IpcMutex>& lock, int boardId,
 			const std::chrono::duration<Rep, Period>& rel_time)
 	{
-		return waitMs(lock, std::chrono::duration_cast<std::chrono::milliseconds>(rel_time).count());
+		lock.unlock();
+		DWORD rc = WaitForSingleObject(events[boardId],
+				(DWORD)std::chrono::duration_cast<std::chrono::milliseconds>(rel_time).count());
+		lock.lock();
+		if (rc == WAIT_FAILED)
+			throw std::runtime_error("Event wait failure");
+		return rc == WAIT_TIMEOUT ? std::cv_status::timeout : std::cv_status::no_timeout;
 	}
 
 	IpcConditionVariable& operator=(const IpcConditionVariable&) = delete;
@@ -243,7 +204,7 @@ public:
 	}
 
 	template<class Rep, class Period>
-	std::cv_status wait_for(std::unique_lock<IpcMutex>& lock,
+	std::cv_status wait_for(std::unique_lock<IpcMutex>& lock, int boardId,
 			const std::chrono::duration<Rep, Period>& rel_time)
 	{
 		timespec ts;
@@ -274,16 +235,18 @@ struct PipeData
 
 constexpr size_t MEM_SIZE = 0x100000 / sizeof(u16);
 
+constexpr size_t KeyboardPipeSize = 64;
+
 struct SharedMemory
 {
 	std::atomic<u16> status;
 	IpcMutex mutex;
 	IpcConditionVariable cond;
-	std::atomic<bool> boardReady[4];
-	std::atomic<bool> boardSynced[4];
+	std::atomic<bool> boardReady[MaxBoards];
+	std::atomic<bool> boardSynced[MaxBoards];
 	std::atomic<bool> exit;
 	u16 data[MEM_SIZE];
-	PipeData<std::pair<u16, bool>, 16> keyboardEvents;
+	PipeData<std::pair<u16, bool>, KeyboardPipeSize> keyboardEvents;
 };
 
 template<typename T, size_t SIZE>
@@ -332,10 +295,10 @@ struct Pipe
 };
 
 using KeyboardEvent = std::pair<u16, bool>;
-struct MultiKeyboard : public Pipe<KeyboardEvent, 16>
+struct MultiKeyboard : public Pipe<KeyboardEvent, KeyboardPipeSize>
 {
-	MultiKeyboard(PipeData<KeyboardEvent, 16>& data)
-		: Pipe<KeyboardEvent, 16>(data)
+	MultiKeyboard(PipeData<KeyboardEvent, KeyboardPipeSize>& data)
+		: Pipe<KeyboardEvent, KeyboardPipeSize>(data)
 	 {}
 };
 
@@ -348,7 +311,18 @@ Multiboard::Multiboard()
 
 	boardId = config::loadInt("naomi", "BoardId");
 #ifdef _WIN32
-	const char *FileName = "Local\\naomi_multiboard_mem";
+	if (isMaster())
+	{
+		// The name must be unique. The master creates a new instance on hard reset, including when the game
+		// is unloaded, while the slaves may still be attached to the previous one and waiting for the exit flag.
+		// Stale slaves of a previous run must not interfere either.
+		static int instanceCount;
+		sharedMemId = std::to_string(GetCurrentProcessId()) + "_" + std::to_string(instanceCount++);
+	}
+	else {
+		sharedMemId = config::loadStr("naomi", "SharedMemId");
+	}
+	const std::string fileName = "Local\\naomi_multiboard_mem" + sharedMemId;
 	if (isMaster())
 		mapFile = CreateFileMapping(
 				INVALID_HANDLE_VALUE,    // use paging file
@@ -356,12 +330,12 @@ Multiboard::Multiboard()
 				PAGE_READWRITE,          // read/write access
 				0,                       // max. object size (high-order)
 				sizeof(SharedMemory),    // max. object size (low-order)
-				FileName);               // name of mapping object
+				fileName.c_str());       // name of mapping object
 	else
 		mapFile = OpenFileMapping(
 			FILE_MAP_ALL_ACCESS,   // read/write access
 			FALSE,                 // do not inherit the name
-			FileName);             // name of mapping object
+			fileName.c_str());     // name of mapping object
 
 	if (mapFile == NULL)
 	{
@@ -369,7 +343,7 @@ Multiboard::Multiboard()
 	}
 	else
 	{
-		INFO_LOG(NAOMI, "Created shared memory: \"%s\"", FileName);
+		INFO_LOG(NAOMI, "Created shared memory: \"%s\"", fileName.c_str());
 		sharedMem = (SharedMemory *) MapViewOfFile(mapFile,   // handle to map object
 				FILE_MAP_ALL_ACCESS, // read/write permission
 				0,
@@ -488,8 +462,14 @@ void Multiboard::startSlave()
 		std::string top = "window:top=" + std::to_string(y);
 		std::string title = "window:title=\"" + std::string(location) + " - " + settings.content.title + '"';
 		std::string gameId = "naomi:gameId=\"" + settings.content.gameId + "-SLAVE\"";
+#ifdef _WIN32
+		std::string memId = "naomi:SharedMemId=" + sharedMemId;
+#endif
 		const char *args[] = {
 			"-config", board.c_str(),
+#ifdef _WIN32
+			"-config", memId.c_str(),
+#endif
 			"-config", region.c_str(),
 			"-config", left.c_str(),
 			"-config", top.c_str(),
@@ -504,12 +484,27 @@ void Multiboard::startSlave()
 
 void sdlReceiveSlaveKeyboardEvent(u16 scancode, bool pressed);
 
+// Waits until notified or for a short while. Returns false if the deadline is reached
+// or if the emulator is stopping, in which case the caller should give up waiting.
+bool Multiboard::waitForSync(std::unique_lock<IpcMutex>& lock, std::chrono::steady_clock::time_point deadline)
+{
+	if (!emu.running() || std::chrono::steady_clock::now() >= deadline)
+		return false;
+	// Wake up regularly to check if the emulator is stopping
+	sharedMem->cond.wait_for(lock, boardId, std::chrono::milliseconds(100));
+	return true;
+}
+
 void Multiboard::syncWait()
 {
 	if (isMaster() && !slaveStarted) {
 		startSlave();
 		return;
 	}
+	// Slave instances can take a long time to start (window, renderer and BIOS initialization).
+	// Wait longer for the first sync, otherwise the master runs alone and its BIOS fails to detect the slaves.
+	const auto deadline = std::chrono::steady_clock::now()
+			+ (firstSyncDone ? std::chrono::seconds(5) : std::chrono::seconds(60));
 
 	{
 		std::unique_lock<IpcMutex> lock(sharedMem->mutex);
@@ -535,7 +530,7 @@ void Multiboard::syncWait()
 				sharedMem->cond.notify_all();
 				break;
 			}
-			if (sharedMem->cond.wait_for(lock, std::chrono::seconds(5)) ==  std::cv_status::timeout) {
+			if (!waitForSync(lock, deadline)) {
 				ERROR_LOG(NAOMI, "Time out waiting for multiboard vsync. Slave %d", isSlave());
 				return;
 			}
@@ -543,6 +538,7 @@ void Multiboard::syncWait()
 	} while (true);
 	if (isMaster())
 	{
+		bool syncDone = false;
 		do {
 			{
 				std::unique_lock<IpcMutex> lock(sharedMem->mutex);
@@ -557,34 +553,33 @@ void Multiboard::syncWait()
 				{
 					for (int i = 0; i < boardCount; i++)
 						sharedMem->boardReady[i] = false;
+					syncDone = true;
 					break;
 				}
-				if (sharedMem->cond.wait_for(lock, std::chrono::seconds(5)) ==  std::cv_status::timeout) {
+				if (!waitForSync(lock, deadline)) {
 					ERROR_LOG(NAOMI, "Time out waiting for multiboard vsync");
 					break;
 				}
 			}
 		} while (true);
-		// Receive keyboard events and pipe them back to SDL. Must be done on the main/ui thread
+		if (syncDone)
+			firstSyncDone = true;
+		// Receive keyboard events and pipe them back to SDL, which processes them on the UI thread.
+		// Key presses and releases are forwarded as is so that keys can be held down.
 		if (keyboard != nullptr)
 		{
 			while (keyboard->available())
 			{
 				auto pair = keyboard->read();
-				if (!pair.second)
-					// Ignore key up events: we always send them in pair
-					continue;
 #ifdef USE_SDL
-				gui_runOnUiThread([pair]() {
-					sdlReceiveSlaveKeyboardEvent(pair.first, true);
-					sdlReceiveSlaveKeyboardEvent(pair.first, false);
-				});
+				sdlReceiveSlaveKeyboardEvent(pair.first, pair.second);
 #endif
 			}
 		}
 	}
 	else
 	{
+		firstSyncDone = true;
 		const u16 newStatus = sharedMem->status;
 		if ((newStatus ^ g2status) & 1) {
 			// Bank switch

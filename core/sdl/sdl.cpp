@@ -35,6 +35,8 @@
 #include "oslib/i18n.h"
 #include <unordered_map>
 #include <algorithm>
+#include <mutex>
+#include <vector>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -180,9 +182,12 @@ static void emuEventCallback(Event event, void *)
 static void checkRawInput()
 {
 #if defined(_WIN32) && !defined(TARGET_UWP)
-	if ((bool)config::UseRawInput != (bool)sdl_keyboard)
+	// Multiboard slaves have no input: their keyboard events are routed to the master,
+	// which receives raw input even when in the background.
+	const bool useRawInput = config::UseRawInput && !settings.naomi.slave;
+	if (useRawInput != (bool)sdl_keyboard)
 		return;
-	if (config::UseRawInput)
+	if (useRawInput)
 	{
 		GamepadDevice::Unregister(sdl_keyboard);
 		sdl_keyboard = nullptr;
@@ -353,9 +358,12 @@ bool sdl_queue_open_file(const char *path)
 	return true;
 }
 
+static void handleSlaveKeyboardEvents();
+
 void input_sdl_handle()
 {
 	SDLGamepad::UpdateRumble();
+	handleSlaveKeyboardEvents();
 
 	SDL_Event event;
 	while (SDL_PollEvent(&event))
@@ -399,7 +407,11 @@ void input_sdl_handle()
 					}
 					// Route other keyboard events to master in multiboard mode
 					if (settings.naomi.slave) {
-						Multiboard::keyboardEvent(event.key.keysym.scancode, event.type == SDL_KEYDOWN);
+#if defined(_WIN32) && !defined(TARGET_UWP)
+						// The master receives raw input directly even when in the background
+						if (!config::UseRawInput)
+#endif
+							Multiboard::keyboardEvent(event.key.keysym.scancode, event.type == SDL_KEYDOWN);
 						break;
 					}
 					auto is_key_mapped = [](u32 code) -> bool {
@@ -647,20 +659,30 @@ void input_sdl_handle()
 	}
 }
 
+// Keyboard events routed from multiboard slaves. They're received on the emulator thread
+// and processed by input_sdl_handle() on the UI thread, which runs even when the master doesn't
+// render anything (F355 twin: the game is displayed by the slave).
+static std::mutex slaveKeyMutex;
+static std::vector<std::pair<u16, bool>> slaveKeyEvents;
+
 void sdlReceiveSlaveKeyboardEvent(u16 scancode, bool pressed)
 {
-	sdl_keyboard->input((SDL_Scancode)scancode, pressed);
-	if (pressed)
+	std::lock_guard<std::mutex> _(slaveKeyMutex);
+	slaveKeyEvents.emplace_back(scancode, pressed);
+}
+
+static void handleSlaveKeyboardEvents()
+{
+	std::vector<std::pair<u16, bool>> events;
 	{
-		u32 flags = SDL_GetWindowFlags(window);
-		if ((flags & SDL_WINDOW_INPUT_FOCUS) == 0)
-		{
-			SDL_SetWindowInputFocus(window);
-			// Doesn't raise the window on linux but shows a popup "Flycast is ready"
-			// Likely to be the same on other platforms for security reasons.
-			SDL_RaiseWindow(window);
-		}
+		std::lock_guard<std::mutex> _(slaveKeyMutex);
+		events.swap(slaveKeyEvents);
 	}
+	// Don't take the focus: the slave window may be the one displaying the game (F355 twin)
+	// sdl_keyboard is null when raw input is used
+	if (sdl_keyboard != nullptr)
+		for (const auto& [scancode, pressed] : events)
+			sdl_keyboard->input((SDL_Scancode)scancode, pressed);
 }
 
 static float hdpiScaling = 1.f;

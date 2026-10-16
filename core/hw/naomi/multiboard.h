@@ -18,7 +18,9 @@
  */
 #pragma once
 #include "types.h"
+#include <chrono>
 #include <memory>
+#include <mutex>
 
 #ifdef NAOMI_MULTIBOARD
 #ifdef _WIN32
@@ -28,6 +30,7 @@
 
 struct SharedMemory;
 struct MultiKeyboard;
+class IpcMutex;
 
 class Multiboard
 {
@@ -50,6 +53,7 @@ private:
 	bool isMaster() const { return boardId == 0; }
 	bool isSlave() const { return boardId != 0; }
 	void startSlave();
+	bool waitForSync(std::unique_lock<IpcMutex>& lock, std::chrono::steady_clock::time_point deadline);
 	static int schedCallback(int tag, int cycles, int jitter, void *arg);
 
 	int boardId = 0;
@@ -58,11 +62,13 @@ private:
 	SharedMemory *sharedMem;
 #ifdef _WIN32
 	HANDLE mapFile;
+	std::string sharedMemId;
 #else
 	std::string sharedMemFileName;
 #endif
 	int boardCount = 0;
 	bool slaveStarted = false;
+	bool firstSyncDone = false;
 	int schedId;
 	int syncCycles;
 	u16 g2status = 0;
