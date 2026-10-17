@@ -965,7 +965,8 @@ private:
 // The board sums a constant torque, a spring, a damping and a vibration into one torque.
 // The spring and the damping are played as SDL effects, the two others as a constant torque.
 // The spring's shape is set by DIP switches 2: the limiting curves, reaching full scale at
-// about 95, are assumed.
+// about 95, are assumed. The other DIP settings are options, read while playing like on the
+// board: no spring (DIP 2) and reversed torque (DIP 1). The spring strength can also be scaled.
 class jvs_837_13844_f355 : public jvs_837_13844_motor_board
 {
 public:
@@ -974,6 +975,7 @@ public:
 	{
 		m3ffbRx = true;
 		out = reverseBits(reply());
+		readDipSwitches();
 	}
 
 	void serialize(Serializer& ser) const override
@@ -1117,6 +1119,24 @@ private:
 			lastNmi += NmiPeriod;
 			nmi();
 		}
+		// The board reads its DIP switches at every NMI: they can be changed while playing
+		if (dipSpring != config::DriveBoardSpring || dipReverse != config::DriveBoardReverse
+				|| dipSpringStrength != config::DriveBoardSpringStrength)
+		{
+			readDipSwitches();
+			if (running)
+			{
+				updateSpring();
+				updateTorque();
+			}
+		}
+	}
+
+	void readDipSwitches()
+	{
+		dipSpring = config::DriveBoardSpring;
+		dipReverse = config::DriveBoardReverse;
+		dipSpringStrength = config::DriveBoardSpringStrength;
 	}
 
 	void nmi()
@@ -1320,9 +1340,11 @@ private:
 	void updateSpring()
 	{
 		// The board computes strength x curve(|wheel - wheelRef|) / 256, the strength going up to 210
-		// and the curve rising by about 1.34 per step of the wheel position up to 127
-		const float saturation = strength * 127 / 256.f / 128.f * motorPower;
-		const float coefficient = std::min(strength * 1.34f / 256.f, 1.f) * motorPower;
+		// and the curve rising by about 1.34 per step of the wheel position up to 127.
+		// No spring if disabled by the DIP switches, and its strength can be scaled (not on the real board)
+		const float scale = dipSpring ? dipSpringStrength / 100.f : 0.f;
+		const float saturation = std::min(strength * 127 / 256.f / 128.f * scale, 1.f) * motorPower;
+		const float coefficient = std::min(strength * 1.34f / 256.f * scale, 1.f) * motorPower;
 		haptic::setSpring(0, saturation, coefficient, (wheelRef - 0x80) / 128.f);
 	}
 
@@ -1345,7 +1367,10 @@ private:
 				vibration = (u8)~vibration;
 		}
 		const int sum = constantTerm + vibration - 0x100;
-		const float torque = std::clamp(sum / 128.f, -1.f, 1.f) * motorPower;
+		float torque = std::clamp(sum / 128.f, -1.f, 1.f) * motorPower;
+		if (dipReverse)
+			// The torque is complemented. The spring is computed by the wheel, which knows its own direction
+			torque = -torque;
 		if (torque != lastTorque)
 		{
 			lastTorque = torque;
@@ -1415,6 +1440,10 @@ private:
 	u8 vibrationNmis = 0;
 	bool vibrationReversed = false;
 	float lastTorque = NAN;
+	// DIP switches, from the configuration
+	bool dipSpring = true;
+	bool dipReverse = false;
+	int dipSpringStrength = 100;
 };
 
 // 18 Wheeler: fake the drive board and limit the wheel analog value

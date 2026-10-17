@@ -405,6 +405,18 @@ void gui_settings_general()
 	OptionCheckbox(T("Save"), config::AutoSaveState,
 			T("Save the state of the game when stopping"));
 	OptionCheckbox(T("Naomi Free Play"), config::ForceFreePlay, T("Configure Naomi games in Free Play mode."));
+	ImGui::Text("%s", T("Drive Board (F355 Challenge):"));
+	ImGui::Indent();
+	OptionCheckbox(T("Centering Spring"), config::DriveBoardSpring,
+			T("DIP switches 2 of the drive board: the spring pulling the wheel back to the center"));
+	OptionCheckbox(T("Reverse Torque"), config::DriveBoardReverse,
+			T("DIP switch 1 of the drive board: reverse the torque, for a wheel turning the wrong way"));
+	{
+		DisabledScope scope(!config::DriveBoardSpring);
+		OptionSlider(T("Spring Strength"), config::DriveBoardSpringStrength, 0, 150,
+				T("Not on the real board: scale the centering spring"), "%d%%");
+	}
+	ImGui::Unindent();
 #if USE_DISCORD
 	OptionCheckbox(T("Discord Presence"), config::DiscordPresence, T("Show which game you are playing on Discord"));
 #endif

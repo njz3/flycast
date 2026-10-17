@@ -365,6 +365,11 @@ extern Option<bool> AutoLoadState;
 extern Option<bool> AutoSaveState;
 extern Option<int, false> SavestateSlot;
 extern Option<bool> ForceFreePlay;
+// Drive board DIP switches (F355): centering spring (DIP 2), reversed torque (DIP 1)
+extern Option<bool> DriveBoardSpring;
+extern Option<bool> DriveBoardReverse;
+// Not on the real board: spring strength in percent
+extern Option<int> DriveBoardSpringStrength;
 extern Option<bool, false> FetchBoxart;
 extern Option<bool, false> BoxartDisplayMode;
 extern Option<int, false> UIScaling;
