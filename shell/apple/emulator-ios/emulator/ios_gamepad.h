@@ -144,7 +144,10 @@ public:
 		if (gcController.vendorName != nullptr)
 			_name = [gcController.vendorName UTF8String];
 		else
+		{
 			_name = i18n::Ts("MFi Gamepad");
+			_mappingName = "MFi Gamepad";
+		}
 		_unique_id = "ios-" + std::to_string(index);
 		INFO_LOG(INPUT, "iOS: Opened joystick %d: '%s'", port, _name.c_str());
 		loadMapping();

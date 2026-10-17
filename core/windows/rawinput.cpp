@@ -208,6 +208,7 @@ RawMouse::RawMouse(int maple_port, const std::string& name, const std::string& u
 		Mouse("RAW", maple_port), handle(handle)
 {
 	this->_name = name;
+	this->_mappingName = name;
 	this->_unique_id = uniqueId;
 	std::replace(this->_unique_id.begin(), this->_unique_id.end(), '=', '_');
 	std::replace(this->_unique_id.begin(), this->_unique_id.end(), '[', '_');

@@ -80,6 +80,7 @@ protected:
 	void refreshName() override
 	{
 		_name = i18n::Ts("Keyboard");
+		_mappingName = "Keyboard";
 	}
 
 	std::shared_ptr<InputMapping> getDefaultMapping() override {

@@ -34,6 +34,10 @@ public:
 
 	void updateState(RAWMOUSE* state);
 
+protected:
+	// The device name isn't translated
+	void refreshName() override {}
+
 private:
 	void buttonInput(Button button, u16 flags, u16 downFlag, u16 upFlag);
 
@@ -47,6 +51,7 @@ public:
 		: KeyboardDevice(maple_port, "RAW"), handle(handle)
 	{
 		this->_name = name;
+		this->_mappingName = name;
 		this->_unique_id = uniqueId;
 		std::replace(this->_unique_id.begin(), this->_unique_id.end(), '=', '_');
 		std::replace(this->_unique_id.begin(), this->_unique_id.end(), '[', '_');
@@ -63,6 +68,11 @@ public:
 			keycode = (u8)scancode;
 		KeyboardDevice::input(keycode, pressed, 0);
 	}
+
+protected:
+	// The device name isn't translated
+	void refreshName() override {}
+
 private:
 	HANDLE handle = NULL;
 };

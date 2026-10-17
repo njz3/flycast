@@ -161,6 +161,9 @@ protected:
 	virtual void refreshName() {}
 
 	std::string _name;
+	// Name of the mapping files if not _name, which is translated for some devices:
+	// the mapping files mustn't depend on the UI language
+	std::string _mappingName;
 	std::string _unique_id;
 	std::shared_ptr<InputMapping> input_mapper;
 	bool rumbleEnabled = false;
@@ -170,7 +173,10 @@ protected:
 private:
 	bool handleButtonInput(int port, DreamcastKey key, bool pressed);
 	bool handleButtonInputDef(const InputMapping::InputDef& inputDef, bool pressed);
-	std::string make_mapping_filename(bool instance, int system, bool perGame = false);
+	std::string make_mapping_filename(bool instance, int system, bool perGame = false, bool translatedName = false);
+	bool hasTranslatedName() const {
+		return !_mappingName.empty() && _mappingName != _name;
+	}
 	bool detectAxis(u32 code, int value);
 	static void emuEvent(Event event, void *arg);
 

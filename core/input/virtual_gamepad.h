@@ -39,6 +39,7 @@ public:
 	void refreshName() override
 	{
 		_name = i18n::Ts("Virtual Gamepad");
+		_mappingName = "Virtual Gamepad";
 	}
 
 	bool is_virtual_gamepad() override {

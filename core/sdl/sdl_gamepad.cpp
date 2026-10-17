@@ -704,7 +704,13 @@ SDLMouse::SDLMouse(u32 mouseId) : Mouse("SDL"), mouseId(mouseId)
 void SDLMouse::refreshName()
 {
 	if (mouseId == 0)
+	{
 		this->_name = i18n::Ts("Default Mouse");
+		this->_mappingName = "Default Mouse";
+	}
 	else
+	{
 		this->_name = strprintf(i18n::T("Mouse %d"), mouseId);
+		this->_mappingName = strprintf("Mouse %d", mouseId);
+	}
 }

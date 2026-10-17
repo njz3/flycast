@@ -584,9 +584,9 @@ void GamepadDevice::load_system_mappings()
 	}
 }
 
-std::string GamepadDevice::make_mapping_filename(bool instance, int system, bool perGame /* = false */)
+std::string GamepadDevice::make_mapping_filename(bool instance, int system, bool perGame /* = false */, bool translatedName /* = false */)
 {
-	std::string mapping_file = api_name() + "_" + name();
+	std::string mapping_file = api_name() + "_" + (translatedName || _mappingName.empty() ? name() : _mappingName);
 	if (instance)
 		mapping_file += "-" + _unique_id;
 	if (perGame && !settings.content.gameId.empty())
@@ -620,16 +620,22 @@ bool GamepadDevice::find_mapping(int system /* = settings.platform.system */)
 		bool perGame = !settings.content.gameId.empty();
 		while (true)
 		{
-			std::string mapping_file = make_mapping_filename(true, system, perGame);
-			input_mapper = InputMapping::LoadMapping(mapping_file);
-			if (!input_mapper)
+			input_mapper = nullptr;
+			// Mappings saved under the translated name of the device by previous versions are used too.
+			// They are saved under the untranslated name.
+			for (int translated = 0; translated <= (hasTranslatedName() ? 1 : 0) && !input_mapper; translated++)
 			{
-				mapping_file = make_mapping_filename(false, system, perGame);
+				std::string mapping_file = make_mapping_filename(true, system, perGame, translated);
 				input_mapper = InputMapping::LoadMapping(mapping_file);
-			}
-			else
-			{
-				instanceMapping = true;
+				if (!input_mapper)
+				{
+					mapping_file = make_mapping_filename(false, system, perGame, translated);
+					input_mapper = InputMapping::LoadMapping(mapping_file);
+				}
+				else
+				{
+					instanceMapping = true;
+				}
 			}
 			if (!!input_mapper)
 			{
@@ -683,6 +689,12 @@ void GamepadDevice::setPerGameMapping(bool enabled)
 		auto deleteMapping = [this](bool instance, int system) {
 			std::string filename = make_mapping_filename(instance, system, true);
 			InputMapping::DeleteMapping(filename);
+			if (hasTranslatedName())
+			{
+				// or it would be used instead
+				filename = make_mapping_filename(instance, system, true, true);
+				InputMapping::DeleteMapping(filename);
+			}
 		};
 		deleteMapping(false, DC_PLATFORM_DREAMCAST);
 		deleteMapping(false, DC_PLATFORM_NAOMI);

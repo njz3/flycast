@@ -60,6 +60,7 @@ protected:
 	void refreshName() override
 	{
 		this->_name = i18n::Ts("Mouse");
+		this->_mappingName = "Mouse";
 	}
 
 	std::shared_ptr<InputMapping> getDefaultMapping() override {
@@ -128,6 +129,7 @@ public:
 	void refreshName() override
 	{
 		_name = i18n::Ts("Touch Mouse");
+		_mappingName = "Touch Mouse";
 	}
 };
 
