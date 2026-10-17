@@ -365,7 +365,7 @@ extern Option<bool> AutoLoadState;
 extern Option<bool> AutoSaveState;
 extern Option<int, false> SavestateSlot;
 extern Option<bool> ForceFreePlay;
-// Drive board DIP switches (F355): centering spring (DIP 2), reversed torque (DIP 1)
+// Drive board DIP switches (F355, 18 Wheeler): centering spring (DIP 2), reversed torque (DIP 1, F355 only)
 extern Option<bool> DriveBoardSpring;
 extern Option<bool> DriveBoardReverse;
 // Not on the real board: spring strength in percent
