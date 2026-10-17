@@ -647,6 +647,17 @@ protected:
 	{
 		jvs_837_13844::read_digital_in(buttons, v);
 
+		// Bidirectional network output: the answer of the drive board driven by the client
+		u32 rx;
+		const bool relayed = m3ffbRx && networkOutput.input("m3ffb_rx", rx);
+		if (relayed != m3ffbRelayed)
+		{
+			m3ffbRelayed = relayed;
+			NOTICE_LOG(MAPLE, "Drive board: %s", relayed ? "the answers are relayed by the network output" : "emulated answers");
+		}
+		if (relayed)
+			out = reverseBits(rx);
+
 		// The drive board RX0-7 is connected to the following player inputs
 		v[0] |= NAOMI_BTN2_KEY | NAOMI_BTN3_KEY | NAOMI_BTN4_KEY | NAOMI_BTN5_KEY;
 		if (out & 16)
@@ -689,8 +700,19 @@ protected:
 
 	virtual u8 process(u8 in) = 0;
 
+	static u8 reverseBits(u8 v)
+	{
+		v = (v & 0xF0) >> 4 | (v & 0x0F) << 4;
+		v = (v & 0xCC) >> 2 | (v & 0x33) << 2;
+		v = (v & 0xAA) >> 1 | (v & 0x55) << 1;
+		return v;
+	}
+
 protected:
 	u8 out = 0;	// output from motor board
+	// The commands are sent to the network output as "m3ffb", and a client can answer with "m3ffb_rx"
+	bool m3ffbRx = false;
+	bool m3ffbRelayed = false;
 };
 
 // Wave Runner GP: fake the drive board
@@ -740,6 +762,7 @@ public:
 	jvs_837_13844_racing(u8 node_id, MIEImpl *parent, int first_player = 0)
 		: jvs_837_13844_motor_board(node_id, parent, first_player)
 	{
+		m3ffbRx = true;
 	}
 
 	void serialize(Serializer& ser) const override
