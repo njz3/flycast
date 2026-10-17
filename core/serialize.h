@@ -53,7 +53,7 @@ public:
 		V60,
 		V61,
 		V62,
-		V63,	// njz3 fork: midiffb, the 838-14174 servo board's registers and answers
+		V63,	// njz3 fork: midiffb (838-14174 servo board) and F355 drive board states
 		Current = V63,
 
 		Next = Current + 1,

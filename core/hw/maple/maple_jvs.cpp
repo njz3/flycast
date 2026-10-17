@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <memory>
 
 #define LOGJVS(...) DEBUG_LOG(JVS, __VA_ARGS__)
@@ -752,9 +753,9 @@ protected:
 };
 
 // 837-13844 jvs board wired to force-feedback drive board
-// 838-13843: f355 (ROM EPR-21867)
 // 838-13992: 18 wheeler (ROM EPR-23000)
 // with 838-12912-01 servo board (same as model3)
+// Also used by Tokyo Bus Guide. F355 has its own class below, jvs_837_13844_f355
 // https://github.com/njz3/vJoyIOFeederWithFFB/blob/master/DRIVEBOARD.md
 class jvs_837_13844_racing : public jvs_837_13844_motor_board
 {
@@ -849,20 +850,20 @@ protected:
 			break;
 
 		case 0xf1:
-			out = 0x10; // needed by f355 and tokyobus
+			out = 0x10; // needed by tokyobus
 			break;
 
 		case 0xfa:
-			motorPower = 1.f;	// f355: 100%
+			motorPower = 1.f;
 			break;
 		case 0xfb:
-			motorPower = 0.9f;	// f355: 90%
+			motorPower = 0.9f;
 			break;
 		case 0xfc:
-			motorPower = 0.8f;	// f355: 80%
+			motorPower = 0.8f;
 			break;
 		case 0xfd:
-			motorPower = 0.6f;	// f355: 60%
+			motorPower = 0.6f;
 			break;
 
 		default:
@@ -882,9 +883,9 @@ protected:
 					{
 						// Spring
 						// bits 0-3 sets the strength of the spring effect
-						// bits 4-5 selects a table scaling the effect given the deflection:
-						//     (from the f355 rom EPR-21867)
-						//     0: large deadzone then abrupt scaling (0 (* 129), 10, 20, 30, 40, 50, 60, 70, 7F)
+						// bits 4-5 selects a table (as read in F355's rom EPR-21867, where it is
+						// a damping curve indexed by the wheel speed, see jvs_837_13844_f355):
+						//     0: no effect (flat zero up to index 129, the index being clamped to 63)
 						//     used by 18wheeler in game but with a different rom (TODO reveng)
 						//     other tables scale linearly:
 						//     1: light speed (96 steps from 0 to 7f)
@@ -944,6 +945,476 @@ private:
 	float torque = 0.f;
 	float damper = 0.f;
 	bool tokyoBus = false;
+};
+
+// F355 Challenge: 837-13844 jvs board wired to the 838-13843 drive board (ROM EPR-21867)
+// with the 838-12912-01 servo board.
+// High-level emulation of the board's program, as disassembled in BackForceFeeder's
+// docs/EPR-21867-F355-DriveBoard. The board runs on an NMI at 250 Hz. The NMIs elapsed since
+// the last access are run when the game reads or writes the board, so that it adds no event to
+// the scheduler:
+// - a command must last 3 NMIs to be seen, and is only acted upon when it changes
+// - the commands below F0 are only obeyed once the board has been started with FE
+// - F0-F7 select what the board answers, the board doesn't answer each command
+// - FA-FD set the gain, and only while the board is stopped
+// - 00-3F set the length of the ramp to the next spring strength, 4 NMIs per step
+// - 40-7F set the spring strength (bits 0-3) and select the damping curve (bits 4-5)
+// - 80-BF play one of 32 short vibration waveforms, bit 5 pushing it the other way
+// - Dx then Cx carry the wheel position the spring pulls to
+// - E0-EF set a constant torque
+// The board sums a constant torque, a spring, a damping and a vibration into one torque.
+// The spring and the damping are played as SDL effects, the two others as a constant torque.
+// The spring's shape is set by DIP switches 2: the limiting curves, reaching full scale at
+// about 95, are assumed.
+class jvs_837_13844_f355 : public jvs_837_13844_motor_board
+{
+public:
+	jvs_837_13844_f355(u8 node_id, MIEImpl *parent, int first_player = 0)
+		: jvs_837_13844_motor_board(node_id, parent, first_player)
+	{
+		m3ffbRx = true;
+		out = reverseBits(reply());
+	}
+
+	void serialize(Serializer& ser) const override
+	{
+		ser << running;
+		ser << replySource;
+		ser << lastCommand;
+		ser << port;
+		ser << pending;
+		ser << pendingNmis;
+		ser << motorPower;
+		ser << rampLength;
+		ser << strength;
+		ser << rampFrom;
+		ser << rampTo;
+		ser << rampSteps;
+		ser << rampStep;
+		ser << dampingCurve;
+		ser << wheelRef;
+		ser << wheelRefHigh;
+		ser << constantTerm;
+		ser << vibrationPos;
+		ser << vibrationNmis;
+		ser << vibrationReversed;
+		jvs_837_13844_motor_board::serialize(ser);
+	}
+	void deserialize(Deserializer& deser) override
+	{
+		if (deser.version() >= Deserializer::V63)
+		{
+			deser >> running;
+			deser >> replySource;
+			deser >> lastCommand;
+			deser >> port;
+			deser >> pending;
+			deser >> pendingNmis;
+			deser >> motorPower;
+			deser >> rampLength;
+			deser >> strength;
+			deser >> rampFrom;
+			deser >> rampTo;
+			deser >> rampSteps;
+			deser >> rampStep;
+			deser >> dampingCurve;
+			deser >> wheelRef;
+			deser >> wheelRefHigh;
+			deser >> constantTerm;
+			deser >> vibrationPos;
+			deser >> vibrationNmis;
+			deser >> vibrationReversed;
+		}
+		else
+		{
+			// Saved by jvs_837_13844_racing, which F355 used before
+			bool testMode;
+			deser >> testMode;
+			running = false;
+			motorPower = 1.f;
+			strength = 0;
+			dampingCurve = 0;
+			wheelRefHigh = 0x80;
+			if (deser.version() >= Deserializer::V51)
+			{
+				u8 damperHigh;
+				deser >> damperHigh;
+				wheelRefHigh = (damperHigh & 0xf) << 4;
+				deser >> running;
+				deser >> motorPower;
+				float springSat, springSpeed, unused;
+				deser >> springSat;
+				deser >> springSpeed;
+				deser >> unused;	// torque
+				deser >> unused;	// damper
+				if (motorPower > 0.f)
+					strength = (u8)std::clamp((int)std::round(springSat / motorPower * 15.f), 0, 15) * 14;
+				dampingCurve = springSpeed >= 1.f ? 3 : springSpeed >= 0.6f ? 2 : springSpeed > 0.f ? 1 : 0;
+			}
+			replySource = testMode ? 0 : 1;
+			lastCommand = 0;
+			port = pending = 0;
+			pendingNmis = 3;
+			rampLength = 0;
+			rampSteps = rampStep = 0;
+			rampFrom = rampTo = strength;
+			wheelRef = wheelRefHigh;
+			constantTerm = 0x80;
+			vibrationPos = NoVibration;
+			vibrationNmis = 0;
+			vibrationReversed = false;
+		}
+		jvs_837_13844_motor_board::deserialize(deser);
+		// The scheduler's clock isn't restored yet
+		lastNmi = NoNmi;
+		lastTorque = NAN;
+		if (running)
+		{
+			updateSpring();
+			updateDamper();
+			updateTorque();
+		}
+		else {
+			haptic::stopAll(0);
+		}
+	}
+
+protected:
+	void read_digital_in(const u32 *buttons, u32 *v) override
+	{
+		runNmis();
+		// The board writes its answer at every NMI: the wheel position must be up to date
+		out = reverseBits(reply());
+		jvs_837_13844_motor_board::read_digital_in(buttons, v);
+	}
+
+	u8 process(u8 in) override
+	{
+		in = ~in;
+		networkOutput.output("m3ffb", in);
+		// The game holds the command on its outputs: the NMIs read it there
+		runNmis();
+		port = in;
+		return reverseBits(reply());
+	}
+
+private:
+	static constexpr u64 NmiPeriod = SH4_MAIN_CLOCK / 250;
+	static constexpr u64 NoNmi = ~0ull;
+	// The board writes a vibration sample every 4 NMIs
+	static constexpr u8 VibrationNmis = 4;
+	static constexpr u8 NoVibration = 0xff;
+
+	// Run the NMIs elapsed since the last call
+	void runNmis()
+	{
+		const u64 now = sh4_sched_now64();
+		if (lastNmi == NoNmi || now < lastNmi || now - lastNmi > SH4_MAIN_CLOCK)
+			// First access, reset or state load: start from now
+			lastNmi = now;
+		while (now - lastNmi >= NmiPeriod)
+		{
+			lastNmi += NmiPeriod;
+			nmi();
+		}
+	}
+
+	void nmi()
+	{
+		// A command is only seen once it has been read three times in a row
+		if (port != pending)
+		{
+			pending = port;
+			pendingNmis = 1;
+		}
+		else if (pendingNmis < 3 && ++pendingNmis == 3 && pending != lastCommand)
+		{
+			lastCommand = pending;
+			execute(pending);
+		}
+		if (running)
+		{
+			rampSpring();
+			playVibration();
+		}
+	}
+
+	void execute(u8 cmd)
+	{
+		if (cmd >= 0xf0)
+		{
+			switch (cmd)
+			{
+			case 0xf0:
+			case 0xf1:
+			case 0xf2:
+			case 0xf3:
+			case 0xf4:
+			case 0xf5:
+			case 0xf6:
+			case 0xf7:
+				// Select what the board answers
+				replySource = cmd & 7;
+				break;
+
+			case 0xfa:
+			case 0xfb:
+			case 0xfc:
+			case 0xfd:
+				// Gain D0, C8, C0 or B0 written to the servo board. Only while stopped
+				if (!running)
+				{
+					static const float gains[] { 1.f, 0.9f, 0.8f, 0.6f };
+					motorPower = gains[cmd - 0xfa];
+				}
+				break;
+
+			case 0xfe:
+				// Run: the four terms of the torque are cleared, the damping curve back to curve 2
+				running = true;
+				strength = 0;
+				rampSteps = rampStep = 0;
+				dampingCurve = 2;
+				constantTerm = 0x80;
+				vibrationPos = NoVibration;
+				lastTorque = NAN;
+				updateSpring();
+				updateDamper();
+				updateTorque();
+				break;
+
+			case 0xff:
+				// Stop
+				running = false;
+				vibrationPos = NoVibration;
+				haptic::stopAll(0);
+				break;
+
+			default:
+				// F8, F9 aren't decoded
+				break;
+			}
+		}
+		else if (running)
+		{
+			if (cmd < 0x40)
+			{
+				// Length of the ramp to the next spring strength
+				rampLength = cmd * 4;
+			}
+			else if (cmd < 0x80)
+			{
+				// Spring strength, reached along the ramp, and damping curve
+				const u8 target = (cmd & 0xf) * 14;
+				if (target == strength)
+				{
+					// A ramp in progress stops there
+					rampSteps = rampStep = 0;
+				}
+				else if (rampLength == 0)
+				{
+					strength = target;
+					rampSteps = rampStep = 0;
+					updateSpring();
+				}
+				else
+				{
+					// A ramp in progress starts again from where it is, to the new target
+					rampFrom = strength;
+					rampTo = target;
+					rampSteps = rampLength;
+					rampStep = 0;
+				}
+				const u8 curve = (cmd >> 4) & 3;
+				if (curve != dampingCurve)
+				{
+					dampingCurve = curve;
+					updateDamper();
+				}
+			}
+			else if (cmd < 0xc0)
+			{
+				// Vibration: one of 32 waveforms, pushed the other way when bit 5 is set
+				vibrationPos = 0;
+				for (int i = cmd & 0x1f; i > 0; i--)
+					while (Waveforms[vibrationPos++] != 0)
+						;
+				vibrationReversed = cmd & 0x20;
+				vibrationNmis = 0;
+			}
+			else if (cmd < 0xd0)
+			{
+				// Low nibble of the wheel position the spring pulls to
+				wheelRef = wheelRefHigh | (cmd & 0xf);
+				updateSpring();
+			}
+			else if (cmd < 0xe0)
+			{
+				// High nibble of the wheel position the spring pulls to
+				wheelRefHigh = (cmd & 0xf) << 4;
+			}
+			else
+			{
+				// Constant torque
+				static const u8 levels[] { 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10,
+					0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0 };
+				constantTerm = levels[cmd & 0xf];
+				updateTorque();
+			}
+		}
+	}
+
+	// One step of the ramp to the spring strength, a straight line
+	void rampSpring()
+	{
+		if (rampStep >= rampSteps)
+			return;
+		rampStep++;
+		const int delta = std::abs(rampTo - rampFrom) * rampStep / rampSteps;
+		strength = rampTo > rampFrom ? rampFrom + delta : rampFrom - delta;
+		// No need to update the effect at every NMI
+		if (rampStep == rampSteps || rampStep % 4 == 0)
+			updateSpring();
+	}
+
+	// One NMI of the vibration
+	void playVibration()
+	{
+		if (vibrationPos == NoVibration)
+			return;
+		if (vibrationNmis++ % VibrationNmis != 0)
+			return;
+		if (Waveforms[vibrationPos] == 0)
+			vibrationPos = NoVibration;
+		updateTorque();
+		if (vibrationPos != NoVibration)
+			vibrationPos++;
+	}
+
+	// What the board answers, as selected by the F0-F7 commands
+	u8 reply()
+	{
+		switch (replySource)
+		{
+		case 0:
+			// The last command received
+			return lastCommand;
+		case 1:
+			// The status byte: bit 4 set when stopped
+			return running ? 0 : 0x10;
+		case 5:
+			// ADC channel 2: the wheel potentiometer
+			return read_analog_axis(0, 0, false) >> 8;
+		case 2:		// DIP switches 1 and 2, all off
+		case 3:
+		case 4:		// ADC channel 1
+		case 6:		// Internal variables
+		case 7:
+			return 0;
+		default:
+			// Nothing selected yet
+			return 0xff;
+		}
+	}
+
+	void updateSpring()
+	{
+		// The board computes strength x curve(|wheel - wheelRef|) / 256, the strength going up to 210
+		// and the curve rising by about 1.34 per step of the wheel position up to 127
+		const float saturation = strength * 127 / 256.f / 128.f * motorPower;
+		const float coefficient = std::min(strength * 1.34f / 256.f, 1.f) * motorPower;
+		haptic::setSpring(0, saturation, coefficient, (wheelRef - 0x80) / 128.f);
+	}
+
+	void updateDamper()
+	{
+		// Damping: a curve indexed by the wheel speed. Curve 0 gives no damping,
+		// curves 1, 2 and 3 reach full scale in 96, 48 and 32 steps
+		static const float dampingSlopes[] { 0.f, 0.33f, 0.67f, 1.f };
+		haptic::setDamper(0, dampingCurve == 0 ? 0.f : motorPower, dampingSlopes[dampingCurve]);
+	}
+
+	void updateTorque()
+	{
+		// The constant torque and the vibration, each centered on 0x80
+		int vibration = 0x80;
+		if (vibrationPos != NoVibration)
+		{
+			vibration = Waveforms[vibrationPos];
+			if (vibrationReversed)
+				vibration = (u8)~vibration;
+		}
+		const int sum = constantTerm + vibration - 0x100;
+		const float torque = std::clamp(sum / 128.f, -1.f, 1.f) * motorPower;
+		if (torque != lastTorque)
+		{
+			lastTorque = torque;
+			haptic::setTorque(0, torque);
+		}
+	}
+
+	// The 32 vibration waveforms of the board, each one ended by 0. 0x80 is neutral
+	static constexpr u8 Waveforms[] {
+		192, 0,
+		192, 192, 0,
+		192, 192, 192, 0,
+		192, 192, 192, 192, 0,
+		64, 192, 0,
+		64, 192, 192, 0,
+		64, 192, 192, 192, 0,
+		64, 192, 192, 192, 192, 0,
+		64, 64, 192, 0,
+		64, 64, 192, 192, 0,
+		64, 64, 192, 192, 192, 0,
+		64, 64, 192, 192, 192, 192, 0,
+		64, 64, 64, 192, 0,
+		64, 64, 64, 192, 192, 0,
+		64, 64, 64, 192, 192, 192, 0,
+		64, 64, 64, 192, 192, 192, 192, 0,
+		255, 0,
+		255, 255, 0,
+		255, 255, 255, 0,
+		255, 255, 255, 255, 0,
+		1, 255, 0,
+		1, 255, 255, 0,
+		1, 255, 255, 255, 0,
+		1, 255, 255, 255, 255, 0,
+		148, 106, 148, 106, 148, 106, 148, 106, 148, 106, 148, 106, 0,
+		160, 96, 160, 96, 160, 96, 160, 96, 160, 96, 160, 96, 0,
+		176, 80, 176, 80, 176, 80, 176, 80, 176, 80, 176, 80, 0,
+		148, 148, 106, 106, 148, 148, 106, 106, 148, 148, 106, 106, 0,
+		160, 160, 96, 96, 160, 160, 96, 96, 160, 160, 96, 96, 0,
+		176, 176, 80, 80, 176, 176, 80, 80, 176, 176, 80, 80, 0,
+		160, 160, 96, 96, 96, 160, 160, 96, 96, 96, 160, 160, 96, 96, 96, 0,
+		176, 176, 80, 80, 80, 176, 176, 80, 80, 80, 176, 176, 80, 80, 80, 0,
+	};
+
+	u64 lastNmi = NoNmi;
+	bool running = false;
+	u8 replySource = 0xff;
+	u8 lastCommand = 0;
+	// Debouncing: what the game writes, and how many NMIs it has been read for
+	u8 port = 0;
+	u8 pending = 0;
+	u8 pendingNmis = 0;
+	float motorPower = 1.f;
+	// Spring strength, 0 to 210, and its ramp in NMIs
+	u8 rampLength = 0;
+	u8 strength = 0;
+	u8 rampFrom = 0;
+	u8 rampTo = 0;
+	u8 rampSteps = 0;
+	u8 rampStep = 0;
+	u8 dampingCurve = 0;
+	// Wheel position the spring pulls to, set at the center by the board's calibration
+	u8 wheelRef = 0x80;
+	u8 wheelRefHigh = 0x80;
+	u8 constantTerm = 0x80;
+	// Vibration being played: position in Waveforms
+	u8 vibrationPos = NoVibration;
+	u8 vibrationNmis = 0;
+	bool vibrationReversed = false;
+	float lastTorque = NAN;
 };
 
 // 18 Wheeler: fake the drive board and limit the wheel analog value
@@ -1662,12 +2133,16 @@ MIEImpl::MIEImpl()
 			INFO_LOG(MAPLE, "Enabling specific JVS setup for game %s", gameId.c_str());
 			io_boards.push_back(std::make_unique<jvs_837_13844_18wheeler>(1, this));
 		}
-		else if (gameId == "F355 CHALLENGE JAPAN" || gameId == "TOKYO BUS GUIDE")
+		else if (gameId == "F355 CHALLENGE JAPAN")
+		{
+			INFO_LOG(MAPLE, "Enabling specific JVS setup for game %s", gameId.c_str());
+			io_boards.push_back(std::make_unique<jvs_837_13844_f355>(1, this));
+		}
+		else if (gameId == "TOKYO BUS GUIDE")
 		{
 			INFO_LOG(MAPLE, "Enabling specific JVS setup for game %s", gameId.c_str());
 			io_boards.push_back(std::make_unique<jvs_837_13844_racing>(1, this));
-			if (gameId == "TOKYO BUS GUIDE")
-				static_cast<jvs_837_13844_racing *>(io_boards.back().get())->setTokyoBusMode(true);
+			static_cast<jvs_837_13844_racing *>(io_boards.back().get())->setTokyoBusMode(true);
 		}
 		else if (gameId.substr(0, 8) == "MKG TKOB"
 				|| gameId.substr(0, 9) == "MUSHIKING"
