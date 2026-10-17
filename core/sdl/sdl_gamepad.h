@@ -30,7 +30,7 @@ public:
 
 	void setSine(float power, float freq, u32 duration_ms);
 	void setTorque(float torque);
-	void setSpring(float saturation, float speed);
+	void setSpring(float saturation, float speed, float center = 0.f);
 	void setDamper(float param, float speed);
 	void stopHaptic();
 
@@ -69,8 +69,8 @@ public:
 	static void SetTorque(int port, float torque) {
 		applyToPort(port, &SDLGamepad::setTorque, torque);
 	}
-	static void SetSpring(int port, float saturation, float speed) {
-		applyToPort(port, &SDLGamepad::setSpring, saturation, speed);
+	static void SetSpring(int port, float saturation, float speed, float center = 0.f) {
+		applyToPort(port, &SDLGamepad::setSpring, saturation, speed, center);
 	}
 	static void SetDamper(int port, float param, float speed) {
 		applyToPort(port, &SDLGamepad::setDamper, param, speed);

@@ -1470,11 +1470,11 @@ void sdl_setTorque(int port, float torque)
 		SDLGamepad::SetTorque(port, torque);
 }
 
-void sdl_setSpring(int port, float saturation, float speed)
+void sdl_setSpring(int port, float saturation, float speed, float center)
 {
 	springSat = saturation;
 	springSpeed = speed;
-	SDLGamepad::SetSpring(port, saturation, speed);
+	SDLGamepad::SetSpring(port, saturation, speed, center);
 }
 
 void sdl_setDamper(int port, float param, float speed)

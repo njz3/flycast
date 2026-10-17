@@ -53,7 +53,8 @@ public:
 		V60,
 		V61,
 		V62,
-		Current = V62,
+		V63,	// njz3 fork: midiffb, the 838-14174 servo board's registers and answers
+		Current = V63,
 
 		Next = Current + 1,
 	};

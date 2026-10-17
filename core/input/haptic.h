@@ -22,7 +22,7 @@
 #ifdef USE_SDL
 void sdl_setTorque(int, float);
 void sdl_setDamper(int, float, float);
-void sdl_setSpring(int, float, float);
+void sdl_setSpring(int, float, float, float);
 void sdl_setSine(int, float, float, u32);
 void sdl_stopHaptic(int);
 #endif
@@ -41,9 +41,10 @@ inline static void setDamper(int port, float param, float speed) {
 #endif
 }
 
-inline static void setSpring(int port, float saturation, float speed) {
+// center: the position the spring pulls to, from -1 (full left) to 1 (full right)
+inline static void setSpring(int port, float saturation, float speed, float center = 0.f) {
 #ifdef USE_SDL
-	sdl_setSpring(port, saturation, speed);
+	sdl_setSpring(port, saturation, speed, center);
 #endif
 }
 

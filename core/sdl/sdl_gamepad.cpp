@@ -18,6 +18,7 @@
 #include "stdclass.h"
 #include "sdl_mappingparser.h"
 #include "oslib/i18n.h"
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <string>
@@ -438,7 +439,7 @@ void SDLGamepad::stopHaptic()
 		rumble(0, 0, 0);
 }
 
-void SDLGamepad::setSpring(float saturation, float speed)
+void SDLGamepad::setSpring(float saturation, float speed, float center)
 {
 	if (haptic == nullptr)
 		return;
@@ -465,6 +466,8 @@ void SDLGamepad::setSpring(float saturation, float speed)
 			effect.condition.left_sat[0] = effect.condition.right_sat[0] = (saturation * rumblePower / 100.f) * 0xffff;
 			// how fast to increase the force
 			effect.condition.left_coeff[0] = effect.condition.right_coeff[0] = speed * 0x7fff;
+			// the position the spring pulls to
+			effect.condition.center[0] = (Sint16)(std::clamp(center, -1.f, 1.f) * 0x7fff);
 			SDL_HapticUpdateEffect(haptic, springEffectId, &effect);
 			SDL_HapticRunEffect(haptic, springEffectId, 1);
 		}
