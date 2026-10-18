@@ -18,11 +18,17 @@
 #include "input/gamepad_device.h"
 #include "input/mouse.h"
 #include "sdl.h"
+#include <condition_variable>
+#include <functional>
+#include <map>
+#include <mutex>
+#include <thread>
 
 class SDLGamepad : public GamepadDevice
 {
 public:
 	SDLGamepad(int maple_port, int joystick_idx, SDL_Joystick *sdl_joystick);
+	~SDLGamepad() override;
 	void set_maple_port(int port) override;
 
 	void rumble(float power, float inclination, u32 duration_ms) override;
@@ -97,6 +103,28 @@ private:
 	u16 getRumbleIntensity(float power) const;
 	void doRumble(float power, u32 duration_ms);
 
+	// The force feedback is sent to the device by a thread of its own: each haptic call is one or more
+	// synchronous USB transfers, which can take several ms with a real wheel and would slow down the
+	// emulation. Only the last request of each effect is kept until the thread applies it.
+	enum HapticRequest { HapticStopAll, HapticTorque, HapticSpring, HapticDamper, HapticSine };
+	struct EffectState
+	{
+		SDL_HapticEffect effect;	// as last sent to the device
+		bool playing = false;		// started and not stopped since
+		bool infinite = false;		// and playing until stopped
+	};
+	void startHapticThread();
+	void stopHapticThread();
+	void postHaptic(HapticRequest request, std::function<void()>&& func);
+	// Run by the haptic thread
+	void applySine(float power, float freq, u32 duration_ms);
+	void applyTorque(float torque);
+	void applySpring(float saturation, float speed, float center);
+	void applyDamper(float param, float speed);
+	void applyStopAll();
+	void playEffect(int effectId, SDL_HapticEffect& effect, EffectState& state, bool infinite = true);
+	void stopEffect(int effectId, EffectState& state);
+
 	SDL_Joystick* sdl_joystick;
 	float vib_inclination = 0;
 	SDL_GameController *sdl_controller = nullptr;
@@ -109,6 +137,18 @@ private:
 	int constEffectId = -1;
 	int springEffectId = -1;
 	int damperEffectId = -1;
+
+	std::thread hapticThread;
+	std::mutex hapticMutex;
+	std::condition_variable hapticCond;
+	std::map<HapticRequest, std::function<void()>> hapticRequests;
+	bool hapticThreadRunning = false;
+	// Only used by the haptic thread
+	EffectState sineState {};
+	EffectState constState {};
+	EffectState springState {};
+	EffectState damperState {};
+	int autocenter = -1;
 };
 
 class SDLMouse : public Mouse
