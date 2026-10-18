@@ -63,6 +63,9 @@ static float power;
 static float position = 8192.f;
 static float centerOffset;
 static int torque;	// from -128 (full right) to 127 (full left)
+// The last sine sent, so that it is only sent when it changes. Negative when unknown
+static float sineAmplitude = -1.f;
+static float sineFrequency = -1.f;
 // The parameters of the commands 80-8F as last received, what the board answers at the addresses 00-0F
 static u8 params[16][2];
 // The address the board answers from (FA 00 aa). 1F gives one-byte statuses
@@ -130,11 +133,24 @@ static void applySine()
 {
 	if (!active)
 		return;
-	// 85: frequency in half Hz (b1) and amplitude (b2). Stopped when either is 0
-	if (params[5][0] == 0 || params[5][1] == 0)
+	// 85: frequency in half Hz (b1) and amplitude (b2). Stopped when either is 0.
+	// The games repeat it at every frame: only sent when it changes
+	const float amplitude = params[5][0] == 0 ? 0.f : params[5][1] / 127.f * power;
+	const float frequency = params[5][1] == 0 ? 0.f : params[5][0] / 2.f;
+	if (amplitude == sineAmplitude && frequency == sineFrequency)
+		return;
+	sineAmplitude = amplitude;
+	sineFrequency = frequency;
+	if (amplitude == 0.f || frequency == 0.f)
 		haptic::setSine(0, 0.f, 0.f, 0);
 	else
-		haptic::setSine(0, params[5][1] / 127.f * power, params[5][0] / 2.f, 0xffffffff);	// until changed
+		haptic::setSine(0, amplitude, frequency, 0xffffffff);	// until changed
+}
+
+static void stopEffects()
+{
+	haptic::stopAll(0);
+	sineAmplitude = sineFrequency = -1.f;
 }
 
 static void applyEffects()
@@ -230,7 +246,7 @@ static void process(u8 cmd, u8 b1, u8 b2)
 		if (b2 == 0)
 		{
 			active = false;
-			haptic::stopAll(0);
+			stopEffects();
 			if (calibrating) {
 				calibrating = false;
 				os_notify(i18n::T("Calibration done"), 2000);
@@ -320,7 +336,7 @@ static void process(u8 cmd, u8 b1, u8 b2)
 		// Reset
 		resetBoard();
 		active = false;
-		haptic::stopAll(0);
+		stopEffects();
 		os_notify(i18n::T("Calibrating the wheel. Keep it centered."), 10000);
 		calibrating = true;
 		haptic::setSpring(0, 0.8f, 1.f);
@@ -549,10 +565,11 @@ void deserialize(Deserializer& deser)
 		torqueDropped = false;
 		if (state == SearchingIndex)
 			searchEnd = lastFrameTime + IndexSearchTime;
+		sineAmplitude = sineFrequency = -1.f;
 		if (active && !calibrating)
 			applyEffects();
 		else
-			haptic::stopAll(0);
+			stopEffects();
 	}
 	// not saved: polled again from now on
 	if (pollSchedId != -1)

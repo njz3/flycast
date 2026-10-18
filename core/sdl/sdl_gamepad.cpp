@@ -247,11 +247,14 @@ SDLGamepad::SDLGamepad(int maple_port, int joystick_idx, SDL_Joystick* sdl_joyst
 		u32 hapq = SDL_HapticQuery(haptic);
 		INFO_LOG(INPUT, "SDL_HapticQuery: supported: %x", hapq);
 		isWheel = SDL_JoystickGetType(sdl_joystick) == SDL_JOYSTICK_TYPE_WHEEL;
-		if ((hapq & SDL_HAPTIC_SINE) != 0 && isWheel)
+		// Also for the force feedback devices that SDL doesn't see as wheels, such as vJoy without a
+		// steering axis: their rumble would otherwise go through SDL_JoystickRumble, whose DirectInput
+		// implementation resets the device and cancels the other effects
+		if ((hapq & SDL_HAPTIC_SINE) != 0)
 		{
 			SDL_HapticEffect effect{};
 			effect.type = SDL_HAPTIC_SINE;
-			effect.periodic.direction.type = SDL_HAPTIC_STEERING_AXIS;
+			effect.periodic.direction.type = isWheel ? SDL_HAPTIC_STEERING_AXIS : SDL_HAPTIC_CARTESIAN;
 			effect.periodic.direction.dir[0] = -1;	// west
 			effect.periodic.period = 40; 			// 25 Hz
 			effect.periodic.magnitude = 0x7fff;
@@ -347,7 +350,7 @@ void SDLGamepad::setSine(float power, float freq, u32 duration_ms)
 		{
 			SDL_HapticEffect effect{};
 			effect.type = SDL_HAPTIC_SINE;
-			effect.periodic.direction.type = SDL_HAPTIC_STEERING_AXIS;
+			effect.periodic.direction.type = isWheel ? SDL_HAPTIC_STEERING_AXIS : SDL_HAPTIC_CARTESIAN;
 			effect.periodic.direction.dir[0] = 1;
 			effect.periodic.period = 1000 / std::min(freq, 100.f); // period in ms
 			// pick random direction
@@ -360,10 +363,14 @@ void SDLGamepad::setSine(float power, float freq, u32 duration_ms)
 			SDL_HapticStopEffect(haptic, sineEffectId);
 		}
 	}
-	else {
+	else if (haptic == nullptr)
+	{
 		const u16 intensity = getRumbleIntensity(power);
 		SDL_JoystickRumble(sdl_joystick, intensity, intensity, duration_ms);
 	}
+	// A force feedback wheel without a sine effect: no vibration. SDL's DirectInput rumble would
+	// try to create a sine effect on the same device, acquire it exclusively and reset it at every
+	// failed attempt, cancelling the other effects.
 }
 
 void SDLGamepad::rumble(float power, float inclination, u32 duration_ms)
