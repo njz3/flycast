@@ -18,6 +18,8 @@
 */
 #pragma once
 #include "types.h"
+#include "cfg/option.h"
+#include <algorithm>
 
 #ifdef USE_SDL
 void sdl_setTorque(int, float);
@@ -29,28 +31,34 @@ void sdl_stopHaptic(int);
 
 namespace haptic {
 
+// The user's force feedback gain. The effects are capped at the maximum force of the device.
+inline static float applyGain(float v) {
+	return std::clamp(v * config::ForceFeedbackGain / 100.f, -1.f, 1.f);
+}
+
 inline static void setTorque(int port, float v) {
 #ifdef USE_SDL
-	sdl_setTorque(port, v);
+	sdl_setTorque(port, applyGain(v));
 #endif
 }
 
+// A stronger damper or spring has both a higher maximum force and a steeper slope
 inline static void setDamper(int port, float param, float speed) {
 #ifdef USE_SDL
-	sdl_setDamper(port, param, speed);
+	sdl_setDamper(port, applyGain(param), applyGain(speed));
 #endif
 }
 
 // center: the position the spring pulls to, from -1 (full left) to 1 (full right)
 inline static void setSpring(int port, float saturation, float speed, float center = 0.f) {
 #ifdef USE_SDL
-	sdl_setSpring(port, saturation, speed, center);
+	sdl_setSpring(port, applyGain(saturation), applyGain(speed), center);
 #endif
 }
 
 inline static void setSine(int port, float power, float frequency, u32 duration_ms) {
 #ifdef USE_SDL
-	sdl_setSine(port, power, frequency, duration_ms);
+	sdl_setSine(port, applyGain(power), frequency, duration_ms);
 #endif
 }
 

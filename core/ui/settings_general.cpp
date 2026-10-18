@@ -405,6 +405,9 @@ void gui_settings_general()
 	OptionCheckbox(T("Save"), config::AutoSaveState,
 			T("Save the state of the game when stopping"));
 	OptionCheckbox(T("Naomi Free Play"), config::ForceFreePlay, T("Configure Naomi games in Free Play mode."));
+	OptionSlider(T("Force Feedback Gain"), config::ForceFeedbackGain, 0, 200,
+			T("Scale the force feedback of the arcade games: drive boards and MIDI servo board. "
+			  "The effects are capped at the maximum force of the wheel"), "%d%%");
 	ImGui::Text("%s", T("Drive Board (F355 Challenge, 18 Wheeler):"));
 	ImGui::Indent();
 	OptionCheckbox(T("Centering Spring"), config::DriveBoardSpring,

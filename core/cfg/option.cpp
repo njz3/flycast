@@ -41,6 +41,7 @@ Option<bool> ForceFreePlay("ForceFreePlay", true);
 Option<bool> DriveBoardSpring("DriveBoardSpring", true, "naomi");
 Option<bool> DriveBoardReverse("DriveBoardReverse", false, "naomi");
 Option<int> DriveBoardSpringStrength("DriveBoardSpringStrength", 100, "naomi");
+Option<int> ForceFeedbackGain("ForceFeedbackGain", 100, "naomi");
 Option<bool, false> FetchBoxart("FetchBoxart", true);
 Option<bool, false> BoxartDisplayMode("BoxartDisplayMode", true);
 Option<int, false> UIScaling("UIScaling", 100);

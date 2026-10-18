@@ -370,6 +370,8 @@ extern Option<bool> DriveBoardSpring;
 extern Option<bool> DriveBoardReverse;
 // Not on the real board: spring strength in percent
 extern Option<int> DriveBoardSpringStrength;
+// Gain in percent of the arcade force feedback (drive boards, MIDI servo board), up to 200
+extern Option<int> ForceFeedbackGain;
 extern Option<bool, false> FetchBoxart;
 extern Option<bool, false> BoxartDisplayMode;
 extern Option<int, false> UIScaling;
