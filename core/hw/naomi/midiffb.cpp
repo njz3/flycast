@@ -96,11 +96,12 @@ static void applyTorque()
 {
 	if (!active || calibrating)
 		return;
-	// 81: the maximum torque towards the center (b1) and away from it (b2)
+	// 81: the maximum torque towards the center (b1) and away from it (b2).
+	// It limits what the board sends to the motor, after the gain.
 	const int displacement = wheelPosition() - 0x2000;
 	const bool towardsCenter = (torque > 0 && displacement < 0) || (torque < 0 && displacement > 0);
 	const float limit = params[1][towardsCenter ? 0 : 1] / 127.f;
-	haptic::setTorque(0, std::clamp(torque / 128.f, -limit, limit) * power);
+	haptic::setTorque(0, std::clamp(torque / 128.f * power, -limit, limit));
 }
 
 static void applySpring()
