@@ -44,7 +44,11 @@
 
 using namespace i18n;
 
-constexpr int BaseSyncCycles = 836208;	// 4 times per frame
+// 64 times per frame. Within a slice, the boards run independently. The BIOS (LookforMulti) names the slaves
+// with questions they must answer within 1 ms: the master writes a message, switches the bank, waits 1 ms then
+// switches it back and reads the answer. With longer slices, the master can go through its wait while the slave
+// waits at the sync, and the boot fails.
+constexpr int SyncCycles = 836208 / 16;
 constexpr u32 G1_BASE = 0x05F7080;
 constexpr u32 G2_BASE = 0x1010000;
 constexpr int MaxBoards = 4;
@@ -247,6 +251,8 @@ struct SharedMemory
 	std::atomic<bool> boardReady[MaxBoards];
 	std::atomic<bool> boardSynced[MaxBoards];
 	std::atomic<bool> exit;
+	// Incremented by the master when all the boards have synced
+	u32 syncRound;
 	u16 data[MEM_SIZE];
 	PipeData<std::pair<u16, bool>, KeyboardPipeSize> keyboardEvents;
 };
@@ -381,12 +387,8 @@ Multiboard::Multiboard()
 		sharedMem->boardReady[1] = sharedMem->boardReady[2] = sharedMem->boardReady[3] = true;
 		sharedMem->boardSynced[1] = sharedMem->boardSynced[2] = sharedMem->boardSynced[3] = true;
 	}
-	if (settings.content.gameId.substr(0, 4) == "F355")
-		syncCycles = BaseSyncCycles / 2;
-	else
-		syncCycles = BaseSyncCycles;
 	schedId = sh4_sched_register(0, schedCallback, this);
-	sh4_sched_request(schedId, syncCycles);
+	sh4_sched_request(schedId, SyncCycles);
 	keyboard = std::make_unique<MultiKeyboard>(sharedMem->keyboardEvents);
 	openTrace();
 }
@@ -395,7 +397,7 @@ int Multiboard::schedCallback(int tag, int cycles, int jitter, void *arg)
 {
 	Multiboard *multiboard = (Multiboard *)arg;
 	multiboard->syncWait();
-	return multiboard->syncCycles;
+	return SyncCycles;
 }
 
 void Multiboard::startSlave()
@@ -516,10 +518,12 @@ void Multiboard::syncWait()
 	const auto deadline = std::chrono::steady_clock::now()
 			+ (firstSyncDone ? std::chrono::seconds(5) : std::chrono::seconds(60));
 
+	u32 round;
 	{
 		std::unique_lock<IpcMutex> lock(sharedMem->mutex);
 		sharedMem->boardReady[boardId] = true;
 		sharedMem->boardSynced[boardId] = false;
+		round = sharedMem->syncRound;
 		sharedMem->cond.notify_all();
 	}
 	do {
@@ -563,6 +567,8 @@ void Multiboard::syncWait()
 				{
 					for (int i = 0; i < boardCount; i++)
 						sharedMem->boardReady[i] = false;
+					sharedMem->syncRound++;
+					sharedMem->cond.notify_all();
 					syncDone = true;
 					break;
 				}
@@ -574,6 +580,15 @@ void Multiboard::syncWait()
 		} while (true);
 		if (syncDone)
 			firstSyncDone = true;
+		if (syncDone && namingStuck())
+		{
+			// A reset of the boards isn't enough: the BIOS then boots differently than after a power cycle.
+			// So the game is restarted, the slaves too, like the user would do.
+			NOTICE_LOG(NAOMI, "Multiboard: the boards didn't finish naming each other. Restarting the game (%d)", Restarts);
+			if (traceFile != nullptr)
+				trace("naming stuck: restart %d", Restarts);
+			emu.requestRestart();
+		}
 		// Receive keyboard events and pipe them back to SDL, which processes them on the UI thread.
 		// Key presses and releases are forwarded as is so that keys can be held down.
 		if (keyboard != nullptr)
@@ -589,6 +604,21 @@ void Multiboard::syncWait()
 	}
 	else
 	{
+		// Wait until the master closes the round. Otherwise a slave getting to its next sync before the master
+		// resets the ready flags goes through it too, and runs ahead of the master.
+		do {
+			if (sharedMem->exit) {
+				NOTICE_LOG(NAOMI, "Slave exiting");
+				throw FlycastException("Slave exit");
+			}
+			std::unique_lock<IpcMutex> lock(sharedMem->mutex);
+			if (sharedMem->syncRound != round)
+				break;
+			if (!waitForSync(lock, deadline)) {
+				ERROR_LOG(NAOMI, "Time out waiting for multiboard vsync. Slave %d", isSlave());
+				break;
+			}
+		} while (true);
 		firstSyncDone = true;
 		const u16 newStatus = sharedMem->status;
 		if ((newStatus ^ g2status) & 1) {
@@ -844,6 +874,7 @@ void Multiboard::writeG2Ext(u32 addr, u32 data, u32 size)
 			trace("G2_STATUS = %x", data);
 		if (isMaster()) {
 			verify(size == 2);
+			watchNaming(data);
 			sharedMem->status = data;
 		}
 		break;
@@ -1003,6 +1034,54 @@ void Multiboard::reset()
 {
 	if (isSlave())
 		sharedMem->status.fetch_and(~(0x10 << boardId));
+	namingToggles = 0;
+	namingDone = 0;
+	bootStart = sh4_sched_now64();
+}
+
+// Boot watchdog. The boards name each other at boot, the master switching the bank back and forth while they
+// exchange messages, and in F355 each exchange ends with a status write of FFxx by the master: the BIOS one about
+// 7 s after the start, then the game one about 36 s after it. If a slave answer still comes too late (see SyncCycles),
+// a board takes a wrong turn and the boot is stuck: when both exchanges aren't done 60 s after the start,
+// the game is restarted.
+constexpr u64 BootTimeout = 60ull * SH4_MAIN_CLOCK;
+constexpr u64 NamingPause = 2ull * SH4_MAIN_CLOCK;
+constexpr int NamingExchanges = 2;
+constexpr int MaxRestarts = 5;
+
+void Multiboard::watchNaming(u16 data)
+{
+	if ((data & 0xff00) == 0xff00)
+	{
+		// the end of an exchange
+		if (namingToggles >= 10)
+			namingDone++;
+		namingToggles = 0;
+		return;
+	}
+	if (((data ^ sharedMem->status) & 1) == 0)
+		return;
+	const u64 now = sh4_sched_now64();
+	// a new exchange starts after a pause
+	if (now - lastToggle > NamingPause)
+		namingToggles = 0;
+	namingToggles++;
+	lastToggle = now;
+}
+
+int Multiboard::Restarts;
+
+bool Multiboard::namingStuck()
+{
+	if (namingWatch == -1)
+		namingWatch = settings.content.gameId.substr(0, 4) == "F355"
+				&& config::loadBool("naomi", "MultiboardWatchdog", true);
+	if (!namingWatch || restartRequested || namingDone >= NamingExchanges || Restarts >= MaxRestarts
+			|| sh4_sched_now64() - bootStart < BootTimeout)
+		return false;
+	Restarts++;
+	restartRequested = true;
+	return true;
 }
 
 void Multiboard::keyboardEvent(u16 code, bool pressed) {

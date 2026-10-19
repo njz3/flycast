@@ -165,6 +165,15 @@ public:
 	 */
 	void requestReset();
 	/**
+	 * Called internally to restart the game: it is unloaded then loaded again by the UI thread.
+	 */
+	void requestRestart() {
+		restartRequested = true;
+	}
+	bool takeRestartRequest() {
+		return restartRequested.exchange(false);
+	}
+	/**
 	 * Called internally on vblank.
 	 */
 	void vblank();
@@ -210,6 +219,7 @@ private:
 	State state = Uninitialized;
 	std::shared_future<void> threadResult;
 	bool resetRequested = false;
+	std::atomic<bool> restartRequested = false;
 	bool singleStep = false;
 	u64 startTime = 0;
 	u32 stepRangeFrom = 0;

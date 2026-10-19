@@ -59,6 +59,8 @@ private:
 	bool waitForSync(std::unique_lock<IpcMutex>& lock, std::chrono::steady_clock::time_point deadline);
 	static int schedCallback(int tag, int cycles, int jitter, void *arg);
 	u16 bankStatus();
+	void watchNaming(u16 data);
+	bool namingStuck();
 
 	int boardId = 0;
 	u32 offset = 0;
@@ -74,9 +76,17 @@ private:
 	bool slaveStarted = false;
 	bool firstSyncDone = false;
 	int schedId;
-	int syncCycles;
 	u16 g2status = 0;
 	u16 dmaOffset = 0;
+	// Boot watchdog (master)
+	int namingWatch = -1;	// the game id isn't known when the multiboard is created
+	int namingToggles = 0;
+	int namingDone = 0;
+	u64 bootStart = 0;
+	u64 lastToggle = 0;
+	bool restartRequested = false;
+	// Game restarts by the boot watchdog, over all the instances
+	static int Restarts;
 	std::unique_ptr<struct MultiKeyboard> keyboard;
 	static Multiboard *Instance;
 

@@ -58,6 +58,13 @@ bool mainui_rend_frame()
 	}
 	else
 	{
+		if (emu.takeRestartRequest())
+		{
+			// a copy: unloading the game clears the content settings
+			const std::string path = settings.content.path;
+			gui_start_game(path);
+			return false;
+		}
 		try {
 			if (!emu.render())
 				return false;
