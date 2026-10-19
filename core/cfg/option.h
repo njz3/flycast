@@ -370,7 +370,8 @@ extern Option<bool> DriveBoardSpring;
 extern Option<bool> DriveBoardReverse;
 // Not on the real board: spring strength in percent
 extern Option<int> DriveBoardSpringStrength;
-// Gain in percent of the arcade force feedback (drive boards, MIDI servo board), up to 200
+// Gain in percent of the arcade force feedback (drive boards, MIDI servo board), up to 300:
+// Initial D needs 265% to reach the full force of a wheel
 extern Option<int> ForceFeedbackGain;
 extern Option<bool, false> FetchBoxart;
 extern Option<bool, false> BoxartDisplayMode;

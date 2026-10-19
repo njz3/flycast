@@ -405,9 +405,12 @@ void gui_settings_general()
 	OptionCheckbox(T("Save"), config::AutoSaveState,
 			T("Save the state of the game when stopping"));
 	OptionCheckbox(T("Naomi Free Play"), config::ForceFreePlay, T("Configure Naomi games in Free Play mode."));
-	OptionSlider(T("Force Feedback Gain"), config::ForceFeedbackGain, 0, 200,
+	OptionSlider(T("Force Feedback Gain"), config::ForceFeedbackGain, 0, 300,
 			T("Scale the force feedback of the arcade games: drive boards and MIDI servo board. "
-			  "The effects are capped at the maximum force of the wheel"), "%d%%");
+			  "The effects are capped at the maximum force of the wheel. "
+			  "At 100%, the force is the real cabinet's, which isn't the maximum: Initial D uses at most 38% "
+			  "of its servo board's force (50% when holding the wheel back). It needs 265% to reach the full force "
+			  "of the wheel, hence up to 300%"), "%d%%");
 	ImGui::Text("%s", T("Drive Board (F355 Challenge, 18 Wheeler):"));
 	ImGui::Indent();
 	OptionCheckbox(T("Centering Spring"), config::DriveBoardSpring,
