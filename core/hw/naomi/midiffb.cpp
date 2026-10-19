@@ -63,6 +63,10 @@ static float power;
 static float position = 8192.f;
 static float centerOffset;
 static int torque;	// from -128 (full right) to 127 (full left)
+// Encoder counts between the last two frames, positive to the left like the torque
+static float wheelSpeed;
+// The torque applied is capped by 81 b2, against the motion of the wheel
+static bool torqueHoldsBack;
 // The last sine sent, so that it is only sent when it changes. Negative when unknown
 static float sineAmplitude = -1.f;
 static float sineFrequency = -1.f;
@@ -92,15 +96,21 @@ static int wheelPosition() {
 	return (int)std::clamp(position - centerOffset, 0.f, 16383.f);
 }
 
+// The torque is against the motion of the wheel
+static bool holdingBack()
+{
+	return (torque > 0 && wheelSpeed < -1.f) || (torque < 0 && wheelSpeed > 1.f);
+}
+
 static void applyTorque()
 {
 	if (!active || calibrating)
 		return;
-	// 81: the maximum torque towards the center (b1) and away from it (b2).
-	// It limits what the board sends to the motor, after the gain.
-	const int displacement = wheelPosition() - 0x2000;
-	const bool towardsCenter = (torque > 0 && displacement < 0) || (torque < 0 && displacement > 0);
-	const float limit = params[1][towardsCenter ? 0 : 1] / 127.f;
+	// 81: the maximum torque forward, driving the wheel the way it turns or from rest (b1), and backward,
+	// holding it back against its motion (b2). It limits what the board sends to the motor, after the gain.
+	// Measured for b1 only: b1 caps the pushes from rest, both ways.
+	torqueHoldsBack = holdingBack();
+	const float limit = params[1][torqueHoldsBack ? 1 : 0] / 127.f;
 	haptic::setTorque(0, std::clamp(torque / 128.f * power, -limit, limit));
 }
 
@@ -172,6 +182,17 @@ static void resetBoard()
 		{ 0x00, 0x00 }, { 0x01, 0x01 }, { 0x00, 0x01 }, { 0x00, 0x01 },
 	};
 	memcpy(params, PowerUpParams, sizeof(params));
+	// The effect table as read back from a 838-14174 board (9D index page, then address 1E), a page per line.
+	// Indices 4 to F hold 0x80 on every page.
+	static const u16 PowerUpTable[16][4] {
+		{ 0x20, 0xc0, 0x80, 0x80 }, { 0x20, 0xb0, 0x80, 0x80 }, { 0x20, 0xa0, 0x80, 0x80 }, { 0x20, 0x90, 0x80, 0x80 },
+		{ 0x30, 0xab, 0x80, 0x80 }, { 0x40, 0xa0, 0x80, 0x80 }, { 0x40, 0x90, 0x80, 0x80 }, { 0x60, 0x95, 0x80, 0x80 },
+		{ 0x10, 0xc0, 0x40, 0x80 }, { 0x10, 0xa0, 0x60, 0x80 }, { 0x10, 0xc0, 0xc0, 0x40 }, { 0x10, 0xa0, 0xa0, 0x60 },
+		{ 0x10, 0xc0, 0x40, 0x40 }, { 0x10, 0xa0, 0x60, 0x60 }, { 0x10, 0xc0, 0x40, 0xc0 }, { 0x10, 0xa0, 0x60, 0xa0 },
+	};
+	for (int page = 0; page < 16; page++)
+		for (int index = 0; index < 16; index++)
+			paramTable[page * 16 + index] = index < 4 ? PowerUpTable[page][index] : 0x80;
 	power = params[3][0] / 127.f;
 	torque = 0;
 	shortMode = false;
@@ -199,12 +220,15 @@ static void reply()
 		aica::midiSend(state == Ready ? 0x00 : state == SearchingIndex ? 0x44 : 0x11);
 		break;
 	case 0x10:
-		// long status: 00 initialized, 01 reset and waiting, 04 searching the index
-		midiSend(base | 0x10, state == Ready ? 0 : state == SearchingIndex ? 4 : 1, 0);
+		// long status, the state in the second byte: 00 initialized, 01 reset and waiting, 04 searching the index
+		midiSend(base | 0x10, 0, state == Ready ? 0 : state == SearchingIndex ? 4 : 1);
+		break;
+	case 0x11:
+		midiSend(base | 0x11, 0, 1);
 		break;
 	case 0x13:
-		// wheel speed, centered
-		midiSend(base | 0x13, 0x40, 0);
+		// wheel speed, centered like a torque: 01 00 is zero
+		midiSend(base | 0x13, 1, 0);
 		break;
 	case 0x14:
 		{
@@ -222,12 +246,17 @@ static void reply()
 			midiSend(base | 0x1e, (v >> 7) & 0x7f, v & 0x7f);
 		}
 		break;
+	case 0x00:
+		// status
+		midiSend(base, 1, 0);
+		break;
 	default:
 		if (replyAddress < 0x10)
 			// the parameters of the command 80 + address
 			midiSend(base | replyAddress, params[replyAddress][0], params[replyAddress][1]);
 		else
-			midiSend(base | (replyAddress & 0x1f), 0, 0);
+			// 12, 15 to 1C: centered zeros
+			midiSend(base | (replyAddress & 0x1f), 1, 0);
 		break;
 	}
 }
@@ -370,7 +399,12 @@ static void midiReceiver(u8 data)
 			if (NaomiGameInputs != nullptr)
 				direction = NaomiGameInputs->axes[0].inverted ? 1 : -1;
 
-			position = std::clamp(mapleInputState[0].fullAxes[0] * direction / 4.f + 8192.f, 0.f, 16383.f);
+			const float newPosition = std::clamp(mapleInputState[0].fullAxes[0] * direction / 4.f + 8192.f, 0.f, 16383.f);
+			wheelSpeed = newPosition - position;
+			position = newPosition;
+			// the cap of the torque depends on the way the wheel turns
+			if (active && !torqueDropped && torque != 0 && holdingBack() != torqueHoldsBack)
+				applyTorque();
 		}
 		if (!passthrough)
 			reply();
@@ -444,9 +478,10 @@ void reset()
 	calibrating = false;
 	midiTxBufIndex = 0;
 	position = 8192.f;
+	wheelSpeed = 0.f;
+	torqueHoldsBack = false;
 	centerOffset = 0.f;
 	paramSelect[0] = paramSelect[1] = 0;
-	paramTable.fill(0);
 	// a hard reset cancels the scheduled callbacks
 	if (pollSchedId != -1)
 		sh4_sched_request(pollSchedId, PollPeriod);
@@ -531,7 +566,6 @@ void deserialize(Deserializer& deser)
 			legacyReplies = true;
 			centerOffset = 0.f;
 			paramSelect[0] = paramSelect[1] = 0;
-			paramTable.fill(0);
 			if (deser.version() >= Deserializer::V51)
 			{
 				float damperParam, damperSpeed, oldTorque;
