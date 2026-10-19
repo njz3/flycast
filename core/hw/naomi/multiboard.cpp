@@ -37,6 +37,8 @@
 #include "hw/holly/sb.h"
 #include "ui/gui.h"
 #include "oslib/i18n.h"
+#include <cstdarg>
+#include <vector>
 #include "emulator.h"
 #include <atomic>
 
@@ -386,6 +388,7 @@ Multiboard::Multiboard()
 	schedId = sh4_sched_register(0, schedCallback, this);
 	sh4_sched_request(schedId, syncCycles);
 	keyboard = std::make_unique<MultiKeyboard>(sharedMem->keyboardEvents);
+	openTrace();
 }
 
 int Multiboard::schedCallback(int tag, int cycles, int jitter, void *arg)
@@ -465,7 +468,7 @@ void Multiboard::startSlave()
 #ifdef _WIN32
 		std::string memId = "naomi:SharedMemId=" + sharedMemId;
 #endif
-		const char *args[] = {
+		std::vector<const char *> args {
 			"-config", board.c_str(),
 #ifdef _WIN32
 			"-config", memId.c_str(),
@@ -475,9 +478,14 @@ void Multiboard::startSlave()
 			"-config", top.c_str(),
 			"-config", gameId.c_str(),
 			"-config", title.c_str(),
-			romPath.c_str()
 		};
-		os_RunInstance(std::size(args), args);
+		if (traceFile != nullptr)
+		{
+			args.push_back("-config");
+			args.push_back("naomi:MultiboardTrace=yes");
+		}
+		args.push_back(romPath.c_str());
+		os_RunInstance((int)args.size(), args.data());
 	}
 	slaveStarted = true;
 }
@@ -497,6 +505,8 @@ bool Multiboard::waitForSync(std::unique_lock<IpcMutex>& lock, std::chrono::stea
 
 void Multiboard::syncWait()
 {
+	if (traceFile != nullptr)
+		traceSync();
 	if (isMaster() && !slaveStarted) {
 		startSlave();
 		return;
@@ -588,6 +598,8 @@ void Multiboard::syncWait()
 				asic_RaiseInterrupt(holly_GDROM_CMD);
 			}
 		}
+		if (newStatus != g2status && traceFile != nullptr)
+			trace("status %x", newStatus);
 		g2status = newStatus;
 	}
 }
@@ -595,6 +607,11 @@ void Multiboard::syncWait()
 Multiboard::~Multiboard()
 {
 	Instance = nullptr;
+	if (traceFile != nullptr)
+	{
+		traceSync();
+		fclose(traceFile);
+	}
 	if (schedId != -1)
 		sh4_sched_unregister(schedId);
 
@@ -617,6 +634,17 @@ Multiboard::~Multiboard()
 #endif
 }
 
+// The status deciding which bank of the shared memory MBOARD_DATA and the DMA access.
+// The bank must be the live one: with the bank seen at sync, the slaves answer too late and the boot fails.
+// So a slave access racing with a bank switch by the master depends on the host timing: they are traced.
+u16 Multiboard::bankStatus()
+{
+	const u16 live = sharedMem->status;
+	if (isSlave() && traceFile != nullptr && ((live ^ g2status) & 1) && sliceRaces++ == 0)
+		trace("bank race: live %x sync %x", live, g2status);
+	return live;
+}
+
 std::pair<u32, bool> Multiboard::readG1(u32 addr, u32 size)
 {
 	switch (addr)
@@ -626,7 +654,7 @@ std::pair<u32, bool> Multiboard::readG1(u32 addr, u32 size)
 
 	case NAOMI_MBOARD_DATA_addr:
 		{
-			u32 bank = (sharedMem->status & 1) ? 0 : 0x80000;
+			u32 bank = (bankStatus() & 1) ? 0 : 0x80000;
 			u32 addr;
 			if (isMaster())
 			{
@@ -639,6 +667,8 @@ std::pair<u32, bool> Multiboard::readG1(u32 addr, u32 size)
 			}
 			u16 data = sharedMem->data[addr & (MEM_SIZE - 1)];
 			//DEBUG_LOG(NAOMI, "[%d] read MBOARD_DATA[%x]: %x (pc = %x)", boardId, addr, data, p_sh4rcb->cntx.pc);
+			if (traceFile != nullptr)
+				traceRead("MBOARD_DATA", addr & (MEM_SIZE - 1), data);
 			offset++;
 			return std::make_pair(data, true);
 		}
@@ -685,7 +715,7 @@ bool Multiboard::writeG1(u32 addr, u32 data, u32 size)
 	case NAOMI_MBOARD_DATA_addr:
 		{
 			DEBUG_LOG(NAOMI, "[%d] MBOARD_DATA[%x] = %x (pc = %x)", boardId, offset, data, p_sh4rcb->cntx.pc);
-			u32 bank = (sharedMem->status & 1) ? 0 : 0x80000;
+			u32 bank = (bankStatus() & 1) ? 0 : 0x80000;
 			u32 addr;
 			if (isMaster())
 			{
@@ -697,6 +727,11 @@ bool Multiboard::writeG1(u32 addr, u32 data, u32 size)
 				addr = (offset & 0xffff) + (boardId - 1) * 0x10000 + bank / 2;
 			}
 			sharedMem->data[addr & (MEM_SIZE - 1)] = data;
+			if (traceFile != nullptr)
+			{
+				traceWrite(addr & (MEM_SIZE - 1), data);
+				trace("MBOARD_DATA[%x] = %x", addr & (MEM_SIZE - 1), data);
+			}
 			offset++;
 		}
 		return true;
@@ -709,6 +744,8 @@ bool Multiboard::writeG1(u32 addr, u32 data, u32 size)
 
 	case NOAMI_MBOARD_DMA_OFFSET_addr:
 		DEBUG_LOG(NAOMI, "[%d] MBOARD_DMA_OFFSET written: %x", boardId, data);
+		if (traceFile != nullptr)
+			trace("MBOARD_DMA_OFFSET = %x", data);
 		dmaOffset = data;
 		return true;
 
@@ -716,6 +753,12 @@ bool Multiboard::writeG1(u32 addr, u32 data, u32 size)
 		if (isSlave())
 		{
 			DEBUG_LOG(NAOMI, "[%d] MBOARD_STATUS = %x", boardId, data);
+			// traced when it changes: the BIOS writes it in a loop while waiting for the master
+			if (traceFile != nullptr && data != lastStatusWrite)
+			{
+				lastStatusWrite = data;
+				trace("MBOARD_STATUS = %x", data);
+			}
 			switch (data)
 			{
 			case 3: // clear GDROM interrupt
@@ -732,6 +775,8 @@ bool Multiboard::writeG1(u32 addr, u32 data, u32 size)
 
 	case NAOMI_MBOARD_CONFIG_SLOT_addr:
 		DEBUG_LOG(NAOMI, "[%d] Multiboard config slot set to %d", boardId, data);
+		if (traceFile != nullptr)
+			trace("CONFIG_SLOT = %x", data);
 		return true;
 
 	default:
@@ -764,6 +809,8 @@ u32 Multiboard::readG2Ext(u32 addr, u32 size)
 				return 0;
 			u16 v = 0xff00 | sharedMem->status;
 			//DEBUG_LOG(NAOMI, "[%d] g2ext_readMem status_reg %x", boardId, v);
+			if (traceFile != nullptr)
+				traceRead("G2_STATUS", addr, v);
 			return v;
 		}
 
@@ -774,14 +821,11 @@ u32 Multiboard::readG2Ext(u32 addr, u32 size)
 			verify(size >= 2);
 			u32 offset = (addr - 0x1020000 + bank) / 2;
 
-			if (size == 2) {
-				DEBUG_LOG(NAOMI, "[%d] g2ext_readMem<%d> %x -> %x", boardId, size, addr, sharedMem->data[offset]);
-				return sharedMem->data[offset];
-			}
-			else {
-				DEBUG_LOG(NAOMI, "[%d] g2ext_readMem<%d> %x -> %x", boardId, size, addr, *(u32 *)&sharedMem->data[offset]);
-				return *(u32 *)&sharedMem->data[offset];
-			}
+			const u32 v = size == 2 ? sharedMem->data[offset] : *(u32 *)&sharedMem->data[offset];
+			DEBUG_LOG(NAOMI, "[%d] g2ext_readMem<%d> %x -> %x", boardId, size, addr, v);
+			if (traceFile != nullptr)
+				traceRead("G2", addr, v);
+			return v;
 		}
 		break;
 	}
@@ -796,6 +840,8 @@ void Multiboard::writeG2Ext(u32 addr, u32 data, u32 size)
 	case 0x1008000: // status reg
 		verify(size <= 2);
 		DEBUG_LOG(NAOMI, "[%d] G2_STATUS write %x", boardId, data);
+		if (traceFile != nullptr)
+			trace("G2_STATUS = %x", data);
 		if (isMaster()) {
 			verify(size == 2);
 			sharedMem->status = data;
@@ -810,6 +856,12 @@ void Multiboard::writeG2Ext(u32 addr, u32 data, u32 size)
 		if ((addr - 0x1020000) < MEM_SIZE * 2 && isMaster())
 		{
 			DEBUG_LOG(NAOMI, "[%d] g2ext_writeMem<%d> %x: %x pc %x pr %x", boardId, size, addr, data, p_sh4rcb->cntx.pc, p_sh4rcb->cntx.pr);
+			if (traceFile != nullptr)
+			{
+				traceWrite(addr, data);
+				// the messages to the slaves
+				trace("G2[%x] = %x (bank %x)", addr, data, sharedMem->status & 1);
+			}
 			verify(size >= 2);
 			u32 bank = (sharedMem->status & 1) ? 0x80000 : 0;
 			u32 offset = (addr - 0x1020000 + bank) / 2;
@@ -856,14 +908,95 @@ bool Multiboard::dmaStart()
 	verify(1 == SB_GDDIR);
 	u32 start = SB_GDSTAR & 0x1FFFFFE0;
 	u32 len = (SB_GDLEN + 31) & ~31;
-	u32 bank = (sharedMem->status & 1) ? 0 : 0x80000;
+	u32 bank = (bankStatus() & 1) ? 0 : 0x80000;
 	u32 *src = (u32 *)&sharedMem->data[(boardId - 1) * 0x10000 + bank / 2 + dmaOffset];
+	if (traceFile != nullptr)
+		trace("DMA offset %x len %x to %08x", dmaOffset, len, start);
 
 	WriteMemBlock_nommu_ptr(start, src, len);
 	SB_GDSTARD = start + len;
 	SB_GDLEND = len;
 
 	return true;
+}
+
+void Multiboard::openTrace()
+{
+	if (!config::loadBool("naomi", "MultiboardTrace", false))
+		return;
+	// The master re-creates its Multiboard on hard reset: the trace goes on in the same file
+	static bool opened;
+	const std::string path = "multiboard_board" + std::to_string(boardId) + ".log";
+	traceFile = fopen(path.c_str(), opened ? "a" : "w");
+	if (traceFile == nullptr)
+	{
+		WARN_LOG(NAOMI, "Can't create the multiboard trace %s: errno %d", path.c_str(), errno);
+		return;
+	}
+	opened = true;
+	NOTICE_LOG(NAOMI, "Multiboard trace: %s", path.c_str());
+	fprintf(traceFile, "# board %d, the first 40 s after each start. Lines: sync count, SH4 cycle, PC, event.\n"
+			"# S: end of a sync slice with the count and hash of the shared memory reads and writes,\n"
+			"# and the slave accesses racing with a bank switch.\n",
+			boardId);
+	fflush(traceFile);
+}
+
+// Only the boot is traced, up to the end of the game naming: the game would make huge files
+constexpr u64 TraceTime = 40ull * SH4_MAIN_CLOCK;
+
+void Multiboard::trace(const char *format, ...)
+{
+	if (sh4_sched_now64() > TraceTime)
+		return;
+	char line[256];
+	int n = snprintf(line, sizeof(line), "%llu %llu %08x ", (unsigned long long)syncCount,
+			(unsigned long long)sh4_sched_now64(), p_sh4rcb->cntx.pc);
+	va_list args;
+	va_start(args, format);
+	vsnprintf(line + n, sizeof(line) - n, format, args);
+	va_end(args);
+	traceBuffer += line;
+	traceBuffer += '\n';
+}
+
+static u32 fnvHash(u32 hash, u32 addr, u32 value)
+{
+	hash = (hash ^ addr) * 16777619u;
+	return (hash ^ value) * 16777619u;
+}
+
+void Multiboard::traceRead(const char *what, u32 addr, u32 value)
+{
+	sliceReads++;
+	readHash = fnvHash(readHash, addr, value);
+	auto it = lastReads.find(addr);
+	if (it == lastReads.end() || it->second != value)
+	{
+		lastReads[addr] = value;
+		trace("%s[%x] -> %x", what, addr, value);
+	}
+}
+
+void Multiboard::traceWrite(u32 addr, u32 value)
+{
+	sliceWrites++;
+	writeHash = fnvHash(writeHash, addr, value);
+}
+
+void Multiboard::traceSync()
+{
+	trace("S reads %u %08x writes %u %08x races %u", sliceReads, readHash, sliceWrites, writeHash, sliceRaces);
+	if (!traceBuffer.empty())
+	{
+		fwrite(traceBuffer.data(), 1, traceBuffer.size(), traceFile);
+		// Flushed at every sync: the processes may have to be killed
+		fflush(traceFile);
+		traceBuffer.clear();
+	}
+	syncCount++;
+	sliceReads = sliceWrites = sliceRaces = 0;
+	readHash = writeHash = 0;
 }
 
 void Multiboard::reset()
