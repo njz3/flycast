@@ -82,6 +82,10 @@ std::string getVmuPath(const std::string& port, bool save)
 		}
 	}
 	
+	if (!get_write_dir().empty())
+		// In the game's folder, where its saves were copied: nothing to look for elsewhere
+		return get_game_save_dir() + vmuName;
+
 	// Fall back to default paths
 	std::string wpath = get_writable_data_path(vmuName);
 	if (save || file_exists(wpath))
@@ -240,6 +244,12 @@ std::string getSavestatePath(int index, bool writable)
 	}
 
 	// Fall back to default paths
+	if (!get_write_dir().empty())
+	{
+		// In the game's folder, where its savestates were copied
+		lastFile.clear();
+		return get_game_save_dir() + state_file;
+	}
 	if (writable) {
 		lastFile.clear();
 		return get_writable_data_path(state_file);
@@ -380,6 +390,13 @@ void saveScreenshot(const std::string& name, const std::vector<u8>& data)
 
 static std::string getScreenshotsPath()
 {
+	if (!get_write_dir().empty())
+	{
+		// In the game's folder, without the trailing separator
+		std::string dir = get_game_save_dir();
+		dir.pop_back();
+		return dir;
+	}
 	wchar_t *screenshotPath;
 	if (FAILED(SHGetKnownFolderPath(FOLDERID_Screenshots, KF_FLAG_CREATE, NULL, &screenshotPath))
 			&& FAILED(SHGetKnownFolderPath(FOLDERID_Pictures, KF_FLAG_CREATE, NULL, &screenshotPath)))

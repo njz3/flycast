@@ -155,7 +155,8 @@ void LogManager::UpdateConfig()
 #if defined(__ANDROID__) || defined(__APPLE__) || defined(TARGET_UWP)
 			std::string logPath = get_writable_data_path("flycast.log");
 #else
-			std::string logPath = "flycast.log";
+			// In the write dir when set, else in the current dir
+			std::string logPath = get_write_dir() + "flycast.log";
 #endif
 			FileLogListener *listener = new FileLogListener(logPath);
 			if (!listener->IsValid())

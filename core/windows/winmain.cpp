@@ -32,6 +32,7 @@
 #include "oslib/oslib.h"
 #include "stdclass.h"
 #include "cfg/cfg.h"
+#include "cfg/ini.h"
 #include "log/LogManager.h"
 #include "sdl/sdl.h"
 #include "emulator.h"
@@ -53,7 +54,50 @@
 #include <windowsx.h>
 #include <winsock2.h>
 
-static void setupPath()
+// --write-dir=<path> or --write-dir <path>
+static std::string getWriteDirOption(int argc, char *argv[])
+{
+	for (int i = 1; i < argc; i++)
+	{
+		const char *arg = argv[i];
+		if (arg[0] == '-' && arg[1] == '-')
+			arg++;
+		if (strncmp(arg, "-write-dir", 10) != 0)
+			continue;
+		if (arg[10] == '=')
+			return arg + 11;
+		if (arg[10] == '\0' && i < argc - 1)
+			return argv[i + 1];
+	}
+	return {};
+}
+
+#ifndef TARGET_UWP
+// The write dir from the command line, or else from the WriteDir key of the [config] section of the emu.cfg
+// next to the exe. A relative path is relative to the exe dir.
+static std::string getWriteDir(const std::string& option, const std::string& exeDir)
+{
+	std::string dir = option;
+	if (dir.empty())
+	{
+		hostfs::File *cfgfile = hostfs::storage().openFile(exeDir + "emu.cfg", "rt");
+		if (cfgfile == nullptr)
+			return {};
+		config::IniFile ini;
+		ini.load(cfgfile);
+		delete cfgfile;
+		dir = ini.getString("config", "WriteDir");
+		if (dir.empty())
+			return {};
+	}
+	const bool absolute = dir.size() >= 2 && (dir[1] == ':' || ((dir[0] == '\\' || dir[0] == '/') && (dir[1] == '\\' || dir[1] == '/')));
+	if (!absolute)
+		dir = exeDir + dir;
+	return dir;
+}
+#endif
+
+static void setupPath(const std::string& writeDirOption)
 {
 #ifndef TARGET_UWP
 	wchar_t fname[512];
@@ -70,6 +114,26 @@ static void setupPath()
 		fn = fn.substr(0, pos) + "\\";
 	else
 		fn = ".\\";
+
+	const std::string writeDir = getWriteDir(writeDirOption, fn);
+	if (!writeDir.empty())
+	{
+		// The folders on the way, the drive or the share excepted
+		for (size_t sep = writeDir.find_first_of("\\/", 3); sep != std::string::npos; sep = writeDir.find_first_of("\\/", sep + 1))
+			flycast::mkdir(writeDir.substr(0, sep).c_str(), 0755);
+		flycast::mkdir(writeDir.c_str(), 0755);
+		set_write_dir(writeDir, fn + "data\\");
+		// The config and the mappings are read next to the exe until they're saved in the write dir
+		set_user_config_dir(get_write_dir());
+		add_system_config_dir(fn);
+		const std::string cacheDir = get_write_dir() + "cache\\";
+		set_user_data_dir(cacheDir);
+		flycast::mkdir(cacheDir.c_str(), 0755);
+		// The BIOS
+		add_system_data_dir(fn + "data\\");
+		add_system_data_dir(fn);
+		return;
+	}
 	set_user_config_dir(fn);
 	add_system_data_dir(fn);
 
@@ -348,7 +412,7 @@ int main(int argc, char* argv[])
 	i18n::init();
 
 	reserveBottomMemory();
-	setupPath();
+	setupPath(getWriteDirOption(argc, argv));
 	findKeyboardLayout();
 
 	if (flycast_init(argc, argv) != 0)
@@ -419,12 +483,12 @@ void os_RunInstance(int argc, const char *argv[])
 	GetModuleFileNameW(NULL, exePath, std::size(exePath));
 
 	std::wstring cmdLine = L'"' + std::wstring(exePath) + L'"';
-	for (int i = 0; i < argc; i++)
+	auto addArg = [&cmdLine](const char *arg)
 	{
 		nowide::wstackstring wname;
-		if (!wname.convert(argv[i])) {
-			WARN_LOG(BOOT, "Invalid argument: %s", argv[i]);
-			continue;
+		if (!wname.convert(arg)) {
+			WARN_LOG(BOOT, "Invalid argument: %s", arg);
+			return;
 		}
 		cmdLine += L" \"";
 		for (wchar_t *p = wname.get(); *p != L'\0'; p++)
@@ -435,7 +499,16 @@ void os_RunInstance(int argc, const char *argv[])
 			cmdLine += *p;
 		}
 		cmdLine += L'"';
+	};
+	// The other instances write to the same folder. Without its trailing separator, which would escape the closing quote
+	std::string writeDir = get_write_dir();
+	if (!writeDir.empty())
+	{
+		writeDir.pop_back();
+		addArg(("--write-dir=" + writeDir).c_str());
 	}
+	for (int i = 0; i < argc; i++)
+		addArg(argv[i]);
 
 	STARTUPINFOW startupInfo{};
 	startupInfo.cb = sizeof(startupInfo);

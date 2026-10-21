@@ -870,8 +870,14 @@ std::shared_ptr<InputMapping> InputMapping::LoadMapping(const std::string& name)
 
 	if (mapping->is_dirty())
 	{
-		// Make a backup of the current mapping file
-		hostfs::File *out = hostfs::storage().openFile((path + ".save").c_str(), "w");
+		// Make a backup of the current mapping file. In the write dir when set: the file read may be next to the exe
+		std::string backupPath = path + ".save";
+		if (!get_write_dir().empty())
+		{
+			make_directory(get_writable_config_path("mappings/"));
+			backupPath = get_writable_config_path(std::string("mappings/") + name + ".save");
+		}
+		hostfs::File *out = hostfs::storage().openFile(backupPath.c_str(), "w");
 		if (out == nullptr)
 			WARN_LOG(INPUT, "Can't backup controller mapping file %s", path.c_str());
 		else

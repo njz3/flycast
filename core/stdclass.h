@@ -80,6 +80,14 @@ bool make_directory(const std::string& path);
 
 // returns a prefix for a game save file, for example: ~/.local/share/flycast/mvsc2.zip
 std::string get_game_save_prefix();
+// --write-dir: the one folder Flycast writes to, with the config at its root, a folder per game
+// for its saves and a cache folder. The saves found in the original data dir are copied to a game's
+// folder at its first use.
+void set_write_dir(const std::string& dir, const std::string& originalDataDir);
+// the write dir with a trailing separator, or empty when not set
+const std::string& get_write_dir();
+// returns the folder of the current game's saves: its own folder in the write dir, or the data dir
+std::string get_game_save_dir();
 // returns the position of the last path separator, or string::npos if none
 size_t get_last_slash_pos(const std::string& path);
 

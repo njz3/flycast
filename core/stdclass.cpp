@@ -22,6 +22,8 @@ static std::string user_config_dir;
 static std::string user_data_dir;
 static std::vector<std::string> system_config_dirs;
 static std::vector<std::string> system_data_dirs;
+static std::string write_dir;
+static std::string original_data_dir;
 
 const std::string defaultWs(" \0", 2);
 
@@ -139,7 +141,86 @@ size_t get_last_slash_pos(const std::string& path)
 
 std::string get_game_save_prefix()
 {
-	return get_writable_data_path(settings.content.fileName);
+	return get_game_save_dir() + settings.content.fileName;
+}
+
+void set_write_dir(const std::string& dir, const std::string& originalDataDir)
+{
+	write_dir = dir;
+	appendPathSep(write_dir);
+	original_data_dir = originalDataDir;
+	appendPathSep(original_data_dir);
+}
+
+const std::string& get_write_dir() {
+	return write_dir;
+}
+
+static bool copyFile(const std::string& from, const std::string& to)
+{
+	hostfs::File *in = hostfs::storage().openFile(from, "rb");
+	if (in == nullptr)
+		return false;
+	hostfs::File *out = hostfs::storage().openFile(to, "wb");
+	bool success = out != nullptr;
+	if (success)
+	{
+		u8 buf[4096];
+		size_t n;
+		while (success && (n = in->read(buf, 1, sizeof(buf))) > 0)
+			success = out->write(buf, 1, n) == n;
+		delete out;
+	}
+	delete in;
+	return success;
+}
+
+// The saves of the current game: the files named after the rom (nvmem, eeprom, cards...), its savestates and the VMUs
+static bool isGameSave(const std::string& name)
+{
+	const std::string& fileName = settings.content.fileName;
+	if (name.compare(0, fileName.size(), fileName) == 0)
+		return true;
+	const std::string base = get_file_basename(fileName);
+	if (name.size() > base.size() && name.compare(0, base.size(), base) == 0
+			&& (name[base.size()] == '.' || name[base.size()] == '_') && get_file_extension(name) == "state")
+		return true;
+	return name.compare(0, 9, "vmu_save_") == 0;
+}
+
+static void copyOriginalSaves(const std::string& dir)
+{
+	DIR *d = flycast::opendir(original_data_dir.c_str());
+	if (d == nullptr)
+		return;
+	while (dirent *entry = flycast::readdir(d))
+	{
+		std::string name = entry->d_name;
+		if (!isGameSave(name))
+			continue;
+		if (copyFile(original_data_dir + name, dir + name))
+			INFO_LOG(COMMON, "Save %s copied from %s", name.c_str(), original_data_dir.c_str());
+		else
+			WARN_LOG(COMMON, "Can't copy the save %s from %s to %s", name.c_str(), original_data_dir.c_str(), dir.c_str());
+	}
+	flycast::closedir(d);
+}
+
+std::string get_game_save_dir()
+{
+	if (write_dir.empty() || settings.content.fileName.empty())
+		return user_data_dir;
+	// Named after the rom set: the file name without its extension
+	std::string game = get_file_basename(settings.content.fileName);
+	for (char& c : game)
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'))
+			c = '_';
+	std::string dir = write_dir + game;
+	const bool created = !file_exists(dir) && make_directory(dir);
+	appendPathSep(dir);
+	if (created)
+		copyOriginalSaves(dir);
+	return dir;
 }
 
 bool make_directory(const std::string& path)

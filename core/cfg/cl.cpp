@@ -30,6 +30,11 @@ static void usage(const char *exe)
 	fprintf(stderr, "Options:\n");
 	fprintf(stderr, "-config section:key=value,...  set a transient config value.\n");
 	fprintf(stderr, "                               Transient config values won't be saved to emu.cfg.\n");
+#if defined(_WIN32) && !defined(TARGET_UWP)
+	fprintf(stderr, "--write-dir=<path>             write only to this folder: the config at its root, the saves\n");
+	fprintf(stderr, "                               of each game in a folder of its own, the caches in cache.\n");
+	fprintf(stderr, "                               Also the WriteDir key of the [config] section of emu.cfg.\n");
+#endif
 	fprintf(stderr, "-help                          display this help\n");
 }
 
@@ -191,6 +196,13 @@ void parseCommandLine(int argc, const char * const argv[])
 				parseConfigOption(argv[++i]);
 			continue;
 		}
+		// Set up before the config is loaded (windows)
+		if (!strcmp(argv[i], "-write-dir") || !strcmp(argv[i], "--write-dir")) {
+			i++;
+			continue;
+		}
+		if (!strncmp(argv[i], "-write-dir=", 11) || !strncmp(argv[i], "--write-dir=", 12))
+			continue;
 		// macOS
 		if (!strncmp(argv[i], "-NSDocumentRevisions", 20)) {
 			i++;

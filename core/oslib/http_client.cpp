@@ -49,6 +49,15 @@ namespace http {
 
 static HINTERNET hInet;
 
+static DWORD requestFlags(bool https)
+{
+	DWORD flags = https ? INTERNET_FLAG_SECURE : 0;
+	if (!get_write_dir().empty())
+		// Nothing written outside the write dir, not even in the WinINet cache
+		flags |= INTERNET_FLAG_NO_CACHE_WRITE;
+	return flags;
+}
+
 void init()
 {
 	if (hInet == NULL)
@@ -100,7 +109,7 @@ int get(const std::string& url, std::vector<u8>& content, const Headers *reqHead
 	if (ic == NULL)
 		return rc;
 
-	HINTERNET hreq = HttpOpenRequest(ic, "GET", components.lpszUrlPath, NULL, NULL, NULL, https ? INTERNET_FLAG_SECURE : 0, 0);
+	HINTERNET hreq = HttpOpenRequest(ic, "GET", components.lpszUrlPath, NULL, NULL, NULL, requestFlags(https), 0);
 	if (hreq == NULL) {
 		InternetCloseHandle(ic);
 		WARN_LOG(NETWORK, "Open URL failed: %lx", GetLastError());
@@ -195,7 +204,7 @@ static int post(const std::string& url, const char *headers, const u8 *payload, 
 	if (ic == NULL)
 		return rc;
 
-	HINTERNET hreq = HttpOpenRequest(ic, "POST", components.lpszUrlPath, NULL, NULL, NULL, https ? INTERNET_FLAG_SECURE : 0, 0);
+	HINTERNET hreq = HttpOpenRequest(ic, "POST", components.lpszUrlPath, NULL, NULL, NULL, requestFlags(https), 0);
 	if (hreq == NULL) {
 		InternetCloseHandle(ic);
 		return rc;

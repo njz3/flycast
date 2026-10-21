@@ -957,7 +957,8 @@ void Multiboard::openTrace()
 		return;
 	// The master re-creates its Multiboard on hard reset: the trace goes on in the same file
 	static bool opened;
-	const std::string path = "multiboard_board" + std::to_string(boardId) + ".log";
+	// In the write dir when set, else in the current dir
+	const std::string path = get_write_dir() + "multiboard_board" + std::to_string(boardId) + ".log";
 	traceFile = fopen(path.c_str(), opened ? "a" : "w");
 	if (traceFile == nullptr)
 	{

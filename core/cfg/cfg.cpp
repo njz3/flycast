@@ -41,6 +41,9 @@ bool open()
 	if (cfgfile != nullptr) {
 		cfgdb.load(cfgfile);
 		delete cfgfile;
+		if (!get_write_dir().empty() && cfgPath != config_path_read)
+			// The original config is copied to the write dir at the first launch
+			saveFile();
 	}
 	else
 	{
