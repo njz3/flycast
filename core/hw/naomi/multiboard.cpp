@@ -505,6 +505,21 @@ bool Multiboard::waitForSync(std::unique_lock<IpcMutex>& lock, std::chrono::stea
 	return true;
 }
 
+// The exit flag is set by any board that stops. The slaves stop with the master, and the master with any slave:
+// otherwise closing the window of a slave would leave the master running alone, with its force feedback on.
+void Multiboard::checkExit()
+{
+	if (!sharedMem->exit)
+		return;
+	if (isSlave())
+	{
+		NOTICE_LOG(NAOMI, "Slave exiting");
+		throw FlycastException("Slave exit");
+	}
+	NOTICE_LOG(NAOMI, "A slave board has stopped");
+	throw FlycastException("A slave board has stopped");
+}
+
 void Multiboard::syncWait()
 {
 	if (traceFile != nullptr)
@@ -527,10 +542,7 @@ void Multiboard::syncWait()
 		sharedMem->cond.notify_all();
 	}
 	do {
-		if (isSlave() && sharedMem->exit) {
-			NOTICE_LOG(NAOMI, "Slave exiting");
-			throw FlycastException("Slave exit");
-		}
+		checkExit();
 		{
 			std::unique_lock<IpcMutex> lock(sharedMem->mutex);
 			bool allReady = true;
@@ -554,6 +566,7 @@ void Multiboard::syncWait()
 	{
 		bool syncDone = false;
 		do {
+			checkExit();
 			{
 				std::unique_lock<IpcMutex> lock(sharedMem->mutex);
 
@@ -607,10 +620,7 @@ void Multiboard::syncWait()
 		// Wait until the master closes the round. Otherwise a slave getting to its next sync before the master
 		// resets the ready flags goes through it too, and runs ahead of the master.
 		do {
-			if (sharedMem->exit) {
-				NOTICE_LOG(NAOMI, "Slave exiting");
-				throw FlycastException("Slave exit");
-			}
+			checkExit();
 			std::unique_lock<IpcMutex> lock(sharedMem->mutex);
 			if (sharedMem->syncRound != round)
 				break;

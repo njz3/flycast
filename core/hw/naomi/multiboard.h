@@ -57,6 +57,7 @@ private:
 	bool isSlave() const { return boardId != 0; }
 	void startSlave();
 	bool waitForSync(std::unique_lock<IpcMutex>& lock, std::chrono::steady_clock::time_point deadline);
+	void checkExit();
 	static int schedCallback(int tag, int cycles, int jitter, void *arg);
 	u16 bankStatus();
 	void watchNaming(u16 data);
