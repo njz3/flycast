@@ -87,6 +87,16 @@ public:
 	static void StopHaptic(int port) {
 		applyToPort(port, &SDLGamepad::stopHaptic);
 	}
+	// The game ended: the force feedback is stopped before returning since the process may end right after,
+	// and the effects requested until the next game starts are ignored
+	static void EndGameHaptic() {
+		for (auto &[k, gamepad] : sdl_gamepads)
+			gamepad->endGameHaptic();
+	}
+	static void StartGameHaptic() {
+		for (auto &[k, gamepad] : sdl_gamepads)
+			gamepad->startGameHaptic();
+	}
 
 protected:
 	u64 vib_stop_time = 0;
@@ -116,6 +126,8 @@ private:
 	void startHapticThread();
 	void stopHapticThread();
 	void postHaptic(HapticRequest request, std::function<void()>&& func);
+	void endGameHaptic();
+	void startGameHaptic();
 	// Run by the haptic thread
 	void applySine(float power, float freq, u32 duration_ms);
 	void applyTorque(float torque);
@@ -143,6 +155,12 @@ private:
 	std::condition_variable hapticCond;
 	std::map<HapticRequest, std::function<void()>> hapticRequests;
 	bool hapticThreadRunning = false;
+	// No effect between the end of a game and the start of the next one
+	bool hapticBlocked = false;
+	// To wait until a stop has been sent to the device
+	std::condition_variable hapticStopCond;
+	u64 hapticStopsRequested = 0;
+	u64 hapticStopsDone = 0;
 	// Only used by the haptic thread
 	EffectState sineState {};
 	EffectState constState {};

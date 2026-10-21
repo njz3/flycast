@@ -346,10 +346,17 @@ void SDLGamepad::startHapticThread()
 			// In the order of HapticRequest: a stop before the effects requested after it
 			std::map<HapticRequest, std::function<void()>> requests;
 			requests.swap(hapticRequests);
+			// the last stop requested is in this batch, if any
+			const u64 stops = requests.count(HapticStopAll) != 0 ? hapticStopsRequested : 0;
 			lock.unlock();
 			for (auto& [request, func] : requests)
 				func();
 			lock.lock();
+			if (stops != 0)
+			{
+				hapticStopsDone = stops;
+				hapticStopCond.notify_all();
+			}
 		}
 	});
 }
@@ -373,12 +380,49 @@ void SDLGamepad::postHaptic(HapticRequest request, std::function<void()>&& func)
 		std::lock_guard<std::mutex> _(hapticMutex);
 		if (!hapticThreadRunning)
 			return;
-		// The effects requested before a stop are cancelled by it
 		if (request == HapticStopAll)
+		{
+			// The effects requested before a stop are cancelled by it
 			hapticRequests.clear();
+			hapticStopsRequested++;
+		}
+		else if (hapticBlocked) {
+			// no effect until the next game starts
+			return;
+		}
 		hapticRequests[request] = std::move(func);
 	}
 	hapticCond.notify_one();
+}
+
+void SDLGamepad::endGameHaptic()
+{
+	vib_inclination = 0;
+	if (!hapticRumble)
+		rumble(0, 0, 0);
+	if (haptic == nullptr)
+		return;
+	std::unique_lock<std::mutex> lock(hapticMutex);
+	if (!hapticThreadRunning)
+		return;
+	hapticBlocked = true;
+	hapticRequests.clear();
+	const u64 stop = ++hapticStopsRequested;
+	hapticRequests[HapticStopAll] = [this]() {
+		applyStopAll();
+	};
+	hapticCond.notify_one();
+	const bool done = hapticStopCond.wait_for(lock, std::chrono::milliseconds(500), [this, stop]() {
+		return hapticStopsDone >= stop || !hapticThreadRunning;
+	});
+	if (!done)
+		WARN_LOG(INPUT, "'%s': the force feedback stop isn't sent yet", _name.c_str());
+}
+
+void SDLGamepad::startGameHaptic()
+{
+	std::lock_guard<std::mutex> _(hapticMutex);
+	hapticBlocked = false;
 }
 
 // Each haptic call is one or more USB transfers to the device: an effect is only sent when it changed,
@@ -547,7 +591,9 @@ void SDLGamepad::stopHaptic()
 
 void SDLGamepad::applyStopAll()
 {
-	SDL_HapticStopAll(haptic);
+	const int result = SDL_HapticStopAll(haptic);
+	if (result != 0)
+		WARN_LOG(INPUT, "SDL_HapticStopAll failed: %s", SDL_GetError());
 	sineState.playing = constState.playing = springState.playing = damperState.playing = false;
 	if (hasAutocenter)
 	{
@@ -635,8 +681,17 @@ void SDLGamepad::close()
 	NOTICE_LOG(INPUT, "SDL: Joystick '%s' on port %d disconnected", _name.c_str(), maple_port());
 	if (haptic != nullptr)
 	{
-		// The pending requests are dropped: everything is stopped
+		// The pending requests are dropped: everything is stopped, effect by effect too so that nothing keeps playing
+		// on the device once the process ends
 		stopHapticThread();
+		for (int effectId : { sineEffectId, constEffectId, springEffectId, damperEffectId })
+		{
+			if (effectId == -1)
+				continue;
+			const int result = SDL_HapticStopEffect(haptic, effectId);
+			if (result != 0)
+				WARN_LOG(INPUT, "SDL_HapticStopEffect failed: %s", SDL_GetError());
+		}
 		applyStopAll();
 		vib_inclination = 0;
 		if (sineEffectId != -1) {

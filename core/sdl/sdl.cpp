@@ -64,6 +64,7 @@ static bool handleBarcodeScanner(const SDL_Event& event);
 void sdl_stopHaptic(int port);
 static void pauseHaptic();
 static void resumeHaptic();
+static void endHaptic();
 
 static struct SDLDeInit
 {
@@ -155,9 +156,12 @@ static void emuEventCallback(Event event, void *)
 {
 	switch (event)
 	{
+	case Event::Start:
+		SDLGamepad::StartGameHaptic();
+		break;
 	case Event::Terminate:
 		SDL_SetWindowTitle(window, "Flycast");
-		sdl_stopHaptic(0);
+		endHaptic();
 		break;
 	case Event::Pause:
 		gameRunning = false;
@@ -252,6 +256,7 @@ void input_sdl_init()
 
 	// Event::Start is called on a background thread, so we can't use it to change the window title (macOS)
 	// However it's followed by Event::Resume which is fine.
+	EventManager::listen(Event::Start, emuEventCallback);
 	EventManager::listen(Event::Terminate, emuEventCallback);
 	EventManager::listen(Event::Pause, emuEventCallback);
 	EventManager::listen(Event::Resume, emuEventCallback);
@@ -298,6 +303,7 @@ void input_sdl_init()
 
 void input_sdl_quit()
 {
+	EventManager::unlisten(Event::Start, emuEventCallback);
 	EventManager::unlisten(Event::Terminate, emuEventCallback);
 	EventManager::unlisten(Event::Pause, emuEventCallback);
 	EventManager::unlisten(Event::Resume, emuEventCallback);
@@ -1507,6 +1513,16 @@ void pauseHaptic() {
 
 void resumeHaptic() {
 	SDLGamepad::SetTorque(0, torque);
+}
+
+void endHaptic()
+{
+	torque = 0.f;
+	springSat = 0.f;
+	springSpeed = 0.f;
+	damperParam = 0.f;
+	damperSpeed = 0.f;
+	SDLGamepad::EndGameHaptic();
 }
 
 #if 0
