@@ -18,7 +18,10 @@
 */
 #define GLM_FORCE_SWIZZLE 1
 #include "transform_matrix.h"
+#include "stdclass.h"
 #include <glm/gtx/transform.hpp>
+#include <algorithm>
+#include <cmath>
 
 static void getTAViewport(const rend_context& rendCtx, int& width, int& height) {
 	width = rendCtx.globClip.x;
@@ -303,7 +306,7 @@ void getScaledFramebufferSize(const rend_context& rendCtx, int& width, int& heig
 	}
 }
 
-float getOutputFramebufferAspectRatio()
+float getOutputImageAspectRatio()
 {
 	float aspectRatio;
 	if (config::Rotate90)
@@ -324,11 +327,126 @@ float getOutputFramebufferAspectRatio()
 			aspectRatio = 4.f / 3.f;
 		}
 	}
+	return aspectRatio * config::ScreenStretching / 100.f;
+}
 
+float getOutputFramebufferAspectRatio()
+{
 	if (config::StretchToFill)
 		return (float)settings.display.width / settings.display.height;
 
-	return aspectRatio * config::ScreenStretching / 100.f;
+	return getOutputImageAspectRatio();
+}
+
+// The length of image shown from the inner border of a barrel's edge to x, in an edge of width d that shows
+// a length l of image on a cylinder of radius r. Linear when the edge is long enough.
+static float barrelArc(float l, float d, float r, float x)
+{
+	if (l <= d)
+		return l * x / d;
+	constexpr float HalfPi = 1.57079633f;
+	const float t = std::min(l / r, HalfPi);
+	return l * std::asin(std::sin(t) * x / d) / t;
+}
+
+// The pieces of an image cropped along an axis, the frame keeping the part k of it.
+// In frame units, the frame is 1 long and the image 1 / k.
+static std::vector<std::pair<float, float>> getCropPieces(float k)
+{
+	const float imageLength = 1.f / k;
+	// The start of the part kept, from the left or top
+	const float start = (imageLength - 1.f) * (std::clamp((int)config::CropPosition, -100, 100) + 100) / 200.f;
+	// The width of each edge of the barrel. Its middle shows the middle of the part kept at the crop's scale.
+	const float edge = config::CropBarrel ? (1.f - std::clamp((int)config::BarrelCenter, 0, 100) / 100.f) / 2.f : 0.f;
+	if (edge <= 0.f)
+		return { { 0.f, start * k }, { 1.f, (start + 1.f) * k } };
+
+	// Each edge shows the rest of the image on its side, the cut part included
+	const float radius = std::max((int)config::BarrelRadius, 1) / 100.f;
+	const float before = start + edge;
+	const float after = imageLength - start - 1.f + edge;
+	constexpr int Steps = 64;
+	std::vector<std::pair<float, float>> pieces;
+	for (int i = Steps; i >= 0; i--)
+	{
+		const float x = edge * i / Steps;
+		pieces.emplace_back(edge - x, (before - barrelArc(before, edge, radius, x)) * k);
+	}
+	for (int i = 0; i <= Steps; i++)
+	{
+		const float x = edge * i / Steps;
+		pieces.emplace_back(1.f - edge + x, (start + 1.f - edge + barrelArc(after, edge, radius, x)) * k);
+	}
+	return pieces;
+}
+
+bool getOutputLayout(int outwidth, int outheight, float imageAR, OutputLayout& layout)
+{
+	enum class Fit { Letterbox, Stretch, Crop } fit;
+	float frameAR;
+	std::string mode = config::AspectRatio;
+	string_toupper(mode);
+	if (mode == "4:3" || mode == "4:3_LETTERBOX")
+		fit = Fit::Letterbox, frameAR = 4.f / 3.f;
+	else if (mode == "16:9")
+		fit = Fit::Letterbox, frameAR = 16.f / 9.f;
+	else if (mode == "4:3_STRETCH")
+		fit = Fit::Stretch, frameAR = 4.f / 3.f;
+	else if (mode == "16:9_STRETCH")
+		fit = Fit::Stretch, frameAR = 16.f / 9.f;
+	else if (mode == "4:3_CROP")
+		fit = Fit::Crop, frameAR = 4.f / 3.f;
+	else if (mode == "16:9_CROP")
+		fit = Fit::Crop, frameAR = 16.f / 9.f;
+	else
+		return false;
+	if (config::Rotate90 || outwidth <= 0 || outheight <= 0 || imageAR <= 0.f)
+		return false;
+
+	// The frame: the largest of its shape in the output, or the whole output with Stretch to Fill
+	layout.x = layout.y = 0.f;
+	layout.w = (float)outwidth;
+	layout.h = (float)outheight;
+	if (!config::StretchToFill)
+	{
+		if (frameAR > layout.w / layout.h)
+		{
+			layout.h = layout.w / frameAR;
+			layout.y = (outheight - layout.h) / 2.f;
+		}
+		else
+		{
+			layout.w = layout.h * frameAR;
+			layout.x = (outwidth - layout.w) / 2.f;
+		}
+	}
+	// The image in the frame, laid out for the frame's shape: a stretched frame stretches it too
+	layout.vertical = false;
+	layout.pieces = { { 0.f, 0.f }, { 1.f, 1.f } };
+	switch (fit)
+	{
+	case Fit::Stretch:
+		break;
+	case Fit::Letterbox:
+		if (imageAR > frameAR)
+		{
+			const float h = layout.h * frameAR / imageAR;
+			layout.y += (layout.h - h) / 2.f;
+			layout.h = h;
+		}
+		else
+		{
+			const float w = layout.w * imageAR / frameAR;
+			layout.x += (layout.w - w) / 2.f;
+			layout.w = w;
+		}
+		break;
+	case Fit::Crop:
+		layout.vertical = imageAR < frameAR;
+		layout.pieces = getCropPieces(layout.vertical ? imageAR / frameAR : frameAR / imageAR);
+		break;
+	}
+	return true;
 }
 
 void getDCFramebufferReadSize(const FramebufferInfo& info, int& width, int& height)

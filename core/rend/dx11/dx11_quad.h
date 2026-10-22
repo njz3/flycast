@@ -84,15 +84,17 @@ public:
 		}
 	}
 
+	// u0, v0: the texture coordinates of the top left corner, u1, v1 of the bottom right one
 	void draw(ComPtr<ID3D11ShaderResourceView>& texView, ComPtr<ID3D11SamplerState> sampler, const float *color = nullptr,
-			float x = -1.f, float y = -1.f, float w = 2.f, float h = 2.f, bool rotate = false)
+			float x = -1.f, float y = -1.f, float w = 2.f, float h = 2.f, bool rotate = false,
+			float u0 = 0.f, float v0 = 0.f, float u1 = 1.f, float v1 = 1.f)
 	{
 		// Vertex buffer
 		Vertex vertices[4] {
-			{ x,     y,     0.f, 1.f },
-			{ x,     y + h, 0.f, 0.f },
-			{ x + w, y,     1.f, 1.f },
-			{ x + w, y + h, 1.f, 0.f },
+			{ x,     y,     u0, v1 },
+			{ x,     y + h, u0, v0 },
+			{ x + w, y,     u1, v1 },
+			{ x + w, y + h, u1, v0 },
 		};
 		D3D11_MAPPED_SUBRESOURCE mappedSubRes{};
 		deviceContext->Map(vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSubRes);

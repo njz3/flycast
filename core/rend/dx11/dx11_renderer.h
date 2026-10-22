@@ -143,6 +143,8 @@ protected:
 	bool frameRenderedOnce = false;
 	Naomi2Helper n2Helper;
 	float aspectRatio = 4.f / 3.f;
+	// The shape of the image itself, before Stretch to Fill, for rend.AspectRatio
+	float imageAspectRatio = 4.f / 3.f;
 	bool dithering = false;
 	rend_context *rendContext;
 	bool renderingToSecAccum = false;

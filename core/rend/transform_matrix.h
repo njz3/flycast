@@ -23,6 +23,8 @@
 #include "hw/pvr/ta_ctx.h"
 #include "cfg/option.h"
 #include <glm/glm.hpp>
+#include <utility>
+#include <vector>
 
 static inline Rect intersect(const Rect& l, const Rect& r)
 {
@@ -84,17 +86,38 @@ private:
 
 void getPvrFramebufferSize(const rend_context& rendCtx, int& width, int& height);
 void getScaledFramebufferSize(const rend_context& rendCtx, int& width, int& height);
+// The aspect ratio of the rendered image, before Stretch to Fill
+float getOutputImageAspectRatio();
 float getOutputFramebufferAspectRatio();
 void getDCFramebufferReadSize(const FramebufferInfo& info, int& width, int& height);
 void getWriteFBToVramParams(const rend_context& ctx, glm::ivec2& scaledSize, Rect& finalClip);
 
-inline static float getDCFramebufferAspectRatio() {
-	if (config::StretchToFill)
-		return (float)settings.display.width / settings.display.height;
-
+// The aspect ratio of the DC framebuffer image, before Stretch to Fill
+inline static float getDCImageAspectRatio() {
 	float aspectRatio = config::Rotate90 ? 3.f / 4.f : 4.f / 3.f;
 	return aspectRatio * config::ScreenStretching / 100.f;
 }
 
+inline static float getDCFramebufferAspectRatio() {
+	if (config::StretchToFill)
+		return (float)settings.display.width / settings.display.height;
+	return getDCImageAspectRatio();
+}
+
 void getWindowboxDimensions(int outwidth, int outheight, float renderAR, int& dx, int& dy, bool rotate);
+
+// The image in the output with rend.AspectRatio: in a frame of 4:3 or 16:9, letterboxed, stretched or cropped
+struct OutputLayout
+{
+	// The image's rectangle in the output, in pixels from the top left corner
+	float x, y, w, h;
+	// The image is drawn in pieces along one axis, horizontal or vertical: positions in the rectangle
+	// from 0 (left or top) to 1, with the matching texture coordinates. A crop shows a part of the texture,
+	// a barrel squeezes the cut parts on the edges.
+	bool vertical;
+	std::vector<std::pair<float, float>> pieces;
+};
+// The layout of an image of aspect ratio imageAR in the output. False with ORIGINAL or a rotated screen:
+// the image is shown as before, with getWindowboxDimensions.
+bool getOutputLayout(int outwidth, int outheight, float imageAR, OutputLayout& layout);
 void getVideoShift(float& x, float& y);

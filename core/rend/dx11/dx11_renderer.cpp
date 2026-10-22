@@ -535,6 +535,7 @@ bool DX11Renderer::Render()
 	else
 	{
 		aspectRatio = getOutputFramebufferAspectRatio();
+		imageAspectRatio = getOutputImageAspectRatio();
 #ifndef LIBRETRO
 		deviceContext->OMSetRenderTargets(1, &DX11Context::Instance()->getRenderTarget().get(), nullptr);
 		displayFramebuffer();
@@ -578,6 +579,42 @@ void DX11Renderer::displayFramebuffer()
 
 	int outwidth = settings.display.width;
 	int outheight = settings.display.height;
+
+	OutputLayout layout;
+	if (getOutputLayout(outwidth, outheight, imageAspectRatio, layout))
+	{
+		// rend.AspectRatio: the image in its frame, drawn piece by piece along the cropped axis
+		deviceContext->OMSetBlendState(blendStates.getState(false), nullptr, 0xffffffff);
+		for (size_t i = 0; i + 1 < layout.pieces.size(); i++)
+		{
+			const auto& [from, u0] = layout.pieces[i];
+			const auto& [to, u1] = layout.pieces[i + 1];
+			if (to <= from)
+				continue;
+			float x = layout.x, y = layout.y, w = layout.w, h = layout.h;
+			float tex[4] { 0.f, 0.f, 1.f, 1.f };
+			if (layout.vertical)
+			{
+				y += from * layout.h;
+				h = (to - from) * layout.h;
+				tex[1] = u0;
+				tex[3] = u1;
+			}
+			else
+			{
+				x += from * layout.w;
+				w = (to - from) * layout.w;
+				tex[0] = u0;
+				tex[2] = u1;
+			}
+			// Normalized, from the bottom left corner, and shifted
+			quad->draw(fbTextureView, samplers->getSampler(config::LinearInterpolation), nullptr,
+					x * 2.f / outwidth - 1.f + shiftX, 1.f - (y + h) * 2.f / outheight + shiftY,
+					w * 2.f / outwidth, h * 2.f / outheight, false, tex[0], tex[1], tex[2], tex[3]);
+		}
+		return;
+	}
+
 	float renderAR = aspectRatio;
 	if (config::Rotate90) {
 		std::swap(outwidth, outheight);
@@ -1077,6 +1114,7 @@ void DX11Renderer::RenderFramebuffer(const FramebufferInfo& info)
 	quad->draw(dcfbTextureView, samplers->getSampler(true));
 
 	aspectRatio = getDCFramebufferAspectRatio();
+	imageAspectRatio = getDCImageAspectRatio();
 
 	deviceContext->OMSetRenderTargets(1, &DX11Context::Instance()->getRenderTarget().get(), nullptr);
 	displayFramebuffer();

@@ -468,6 +468,19 @@ extern Option<bool> DumpUniqueTextures;
 extern Option<bool> DumpReplacedTextures;
 extern Option<int> ScreenStretching;	// in percent. 150 means stretch from 4/3 to 6/3
 extern Option<bool> StretchToFill;
+// The frame the image is shown in, and how the image fills it: ORIGINAL (the shape of the image),
+// 4:3 or 16:9 (the whole image in the frame, black bars where the shapes differ; 4:3_LETTERBOX is 4:3),
+// 4:3_STRETCH, 16:9_STRETCH (the image fills the frame, distorted), 4:3_CROP, 16:9_CROP (the image
+// fills the frame with its own shape, what overflows is cut). Stretch to Fill stretches the frame.
+extern OptionString AspectRatio;
+// The part kept by a crop, from -100 (left or top) to 100 (right or bottom)
+extern Option<int> CropPosition;
+// Cropped parts squeezed on the edges as on a cylinder seen from the front, instead of cut
+extern Option<bool> CropBarrel;
+// The middle of the frame shown undistorted by the barrel, in percent of the frame
+extern Option<int> BarrelCenter;
+// The radius of the barrel's cylinder, in percent of the frame
+extern Option<int> BarrelRadius;
 extern Option<bool> Fog;
 extern Option<bool> FloatVMUs;
 extern Option<bool> Rotate90;

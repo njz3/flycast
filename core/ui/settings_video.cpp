@@ -20,6 +20,7 @@
 #include "gui.h"
 #include "hw/pvr/Renderer_if.h"
 #include "wsi/context.h"
+#include "stdclass.h"
 
 enum RenderAPI {
 	OpenGL,
@@ -286,6 +287,57 @@ void gui_settings_video()
 					T("Stretch the screen horizontally"), "%d%%");
 		}
     	OptionCheckbox(T("Rotate Screen 90°"), config::Rotate90, T("Rotate the screen 90° counterclockwise"));
+		{
+			// The values of rend.AspectRatio, the same as the other Racecab emulators
+			static const char *modes[] { "ORIGINAL", "4:3", "16:9", "4:3_STRETCH", "16:9_STRETCH", "4:3_CROP", "16:9_CROP" };
+			const char *names[] { T("Original"), T("4:3 Letterbox"), T("16:9 Letterbox"), T("4:3 Stretched"),
+				T("16:9 Stretched"), T("4:3 Cropped"), T("16:9 Cropped") };
+			std::string mode = config::AspectRatio;
+			string_toupper(mode);
+			if (mode == "4:3_LETTERBOX")
+				mode = "4:3";
+			int selected = 0;
+			for (int i = 0; i < (int)std::size(modes); i++)
+				if (mode == modes[i])
+					selected = i;
+			{
+				DisabledScope scope(config::Rotate90 || config::AspectRatio.isReadOnly());
+				if (ImGui::BeginCombo(T("Frame"), names[selected], ImGuiComboFlags_None))
+				{
+					for (int i = 0; i < (int)std::size(modes); i++)
+					{
+						bool isSelected = selected == i;
+						if (ImGui::Selectable(names[i], &isSelected))
+							config::AspectRatio = std::string(modes[i]);
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+			}
+			ImGui::SameLine();
+			ShowHelpMarker(T("The frame the image is shown in, and how the image fills it. Letterbox: the whole image, "
+					"black bars where the shapes differ. Stretched: the image fills the frame, distorted. "
+					"Cropped: the image fills the frame with its own shape, what overflows is cut. "
+					"Stretch to Fill stretches the frame. DirectX 11 only for now, and not with a rotated screen."));
+			if (selected >= 5 && !config::Rotate90)
+			{
+				ImGui::Indent();
+				OptionSlider(T("Crop Position"), config::CropPosition, -100, 100,
+						T("The part kept: -100 on the left or at the top, 0 in the middle, 100 on the right or at the bottom"));
+				OptionCheckbox(T("Bend the Cut Parts on the Edges"), config::CropBarrel,
+						T("Instead of being cut, the parts outside the frame are squeezed on its edges, "
+						  "as on a cylinder seen from the front. The whole image stays visible."));
+				if (config::CropBarrel)
+				{
+					OptionSlider(T("Undistorted Middle"), config::BarrelCenter, 0, 100,
+							T("The middle of the frame shown without distortion"), "%d%%");
+					OptionSlider(T("Curvature Radius"), config::BarrelRadius, 10, 300,
+							T("The radius of the cylinder. Small: strong curve near the edges. Large: almost even squeeze"), "%d%%");
+				}
+				ImGui::Unindent();
+			}
+		}
     }
 	if (perPixel)
 	{
