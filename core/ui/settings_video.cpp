@@ -21,6 +21,10 @@
 #include "hw/pvr/Renderer_if.h"
 #include "wsi/context.h"
 #include "stdclass.h"
+#if defined(USE_SDL) && !defined(GLES) && !defined(__SWITCH__)
+#include "sdl/sdl.h"
+#define FULLSCREEN_CHECKBOX
+#endif
 
 enum RenderAPI {
 	OpenGL,
@@ -276,6 +280,16 @@ void gui_settings_video()
     	}
 		OptionCheckbox(T("Widescreen Game Cheats"), config::WidescreenGameHacks,
     			T("Modify the game so that it displays in 16:9 anamorphic format and use horizontal screen stretching. Only some games are supported."));
+#ifdef FULLSCREEN_CHECKBOX
+		{
+			bool fullscreen = sdl_is_fullscreen();
+			if (ImGui::Checkbox(T("Fullscreen (Borderless)"), &fullscreen))
+				sdl_set_fullscreen(fullscreen);
+			ImGui::SameLine();
+			ShowHelpMarker(T("The window covers the whole screen, without borders and without changing the screen's resolution. "
+					"Same as Alt+Enter or F11. With Stretch to Fill, the image fills the screen."));
+		}
+#endif
 		{
 			DisabledScope scope(config::SuperWidescreen);
 			OptionCheckbox(T("Stretch to Fill"), config::StretchToFill,

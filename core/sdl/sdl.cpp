@@ -152,6 +152,29 @@ static void captureMouse(bool capture)
 	}
 }
 
+bool sdl_is_fullscreen() {
+	return window_fullscreen;
+}
+
+void sdl_set_fullscreen(bool fullscreen)
+{
+	if (window == nullptr || fullscreen == window_fullscreen)
+		return;
+	if (fullscreen)
+	{
+		SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+		if (gameRunning)
+			SDL_ShowCursor(SDL_DISABLE);
+	}
+	else
+	{
+		SDL_SetWindowFullscreen(window, 0);
+		if (!gameRunning || !mouseCaptured)
+			SDL_ShowCursor(SDL_ENABLE);
+	}
+	window_fullscreen = fullscreen;
+}
+
 static void emuEventCallback(Event event, void *)
 {
 	switch (event)
@@ -396,19 +419,7 @@ void input_sdl_handle()
 							&& ((event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT))
 								|| (event.key.keysym.sym == SDLK_F11 && (event.key.keysym.mod & (KMOD_ALT | KMOD_CTRL | KMOD_SHIFT | KMOD_GUI)) == 0)))
 					{
-						if (window_fullscreen)
-						{
-							SDL_SetWindowFullscreen(window, 0);
-							if (!gameRunning || !mouseCaptured)
-								SDL_ShowCursor(SDL_ENABLE);
-						}
-						else
-						{
-							SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-							if (gameRunning)
-								SDL_ShowCursor(SDL_DISABLE);
-						}
-						window_fullscreen = !window_fullscreen;
+						sdl_set_fullscreen(!window_fullscreen);
 						break;
 					}
 					// Route other keyboard events to master in multiboard mode
