@@ -33,6 +33,7 @@
 #endif
 #include "dreamlink.h"
 #include "oslib/i18n.h"
+#include "version.h"
 #include <unordered_map>
 #include <algorithm>
 #include <mutex>
@@ -58,6 +59,9 @@ static bool mouseCaptured;
 static std::string clipboardText;
 static std::string barcode;
 static u64 lastBarcodeTime;
+
+// The window title: this branch of Flycast and its build version, before the game
+static const std::string WindowTitle = "Flycast FFB Edition " GIT_VERSION;
 
 static KeyboardLayout detectKeyboardLayout();
 static bool handleBarcodeScanner(const SDL_Event& event);
@@ -123,7 +127,7 @@ static void setWindowTitleGame()
 		else
 			title = settings.content.title;
 	}
-	SDL_SetWindowTitle(window, ("Flycast - " + title).c_str());
+	SDL_SetWindowTitle(window, (WindowTitle + " - " + title).c_str());
 }
 
 static void captureMouse(bool capture)
@@ -146,7 +150,7 @@ static void captureMouse(bool capture)
 		{
 			if (config::UseRawInput)
 				SDL_ShowCursor(SDL_DISABLE);
-			SDL_SetWindowTitle(window, "Flycast - mouse capture");
+			SDL_SetWindowTitle(window, (WindowTitle + " - mouse capture").c_str());
 			mouseCaptured = true;
 		}
 	}
@@ -183,7 +187,7 @@ static void emuEventCallback(Event event, void *)
 		SDLGamepad::StartGameHaptic();
 		break;
 	case Event::Terminate:
-		SDL_SetWindowTitle(window, "Flycast");
+		SDL_SetWindowTitle(window, WindowTitle.c_str());
 		endHaptic();
 		break;
 	case Event::Pause:
@@ -913,7 +917,7 @@ bool sdl_recreate_window(u32 flags)
 	flags |= SDL_WINDOW_FULLSCREEN;
 #endif
 
-	window = SDL_CreateWindow("Flycast", windowPos.x, windowPos.y,
+	window = SDL_CreateWindow(WindowTitle.c_str(), windowPos.x, windowPos.y,
 			windowPos.w * hdpiScaling, windowPos.h * hdpiScaling, flags);
 	if (window == nullptr)
 	{
