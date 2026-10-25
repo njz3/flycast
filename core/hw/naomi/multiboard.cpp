@@ -465,7 +465,9 @@ void Multiboard::startSlave()
 		}
 		std::string left = "window:left=" + std::to_string(slaveX);
 		std::string top = "window:top=" + std::to_string(y);
-		std::string title = "window:title=\"" + std::string(location) + " - " + settings.content.title + '"';
+		// "Left - <title>", or the title alone for a single slave, which has no position
+		std::string title = "window:title=\"" + (*location == '\0' ? std::string() : std::string(location) + " - ")
+				+ settings.content.title + '"';
 		std::string gameId = "naomi:gameId=\"" + settings.content.gameId + "-SLAVE\"";
 #ifdef _WIN32
 		std::string memId = "naomi:SharedMemId=" + sharedMemId;
