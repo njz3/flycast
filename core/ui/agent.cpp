@@ -424,8 +424,15 @@ bool lastFrame(std::vector<u8>& rgb, int& width, int& height)
 	rgb.clear();
 	width = 0;
 	height = config::RenderResolution;
-	return renderer != nullptr && renderer->GetLastFrame(rgb, width, height)
-			&& width > 0 && height > 0 && rgb.size() >= (size_t)width * height * 3;
+	try {
+		return renderer != nullptr && renderer->GetLastFrame(rgb, width, height)
+				&& width > 0 && height > 0 && width <= 16384 && height <= 16384
+				&& rgb.size() >= (size_t)width * height * 3;
+	} catch (const std::bad_alloc&) {
+		// Seen on F355 twin's master (multiboard): black instead
+		rgb.clear();
+		return false;
+	}
 }
 
 // Box average down (or nearest up) to width x height
@@ -651,6 +658,8 @@ void execute(const std::string& line)
 			// Nothing rendered yet: black, at the size given by ready
 			srcHeight = config::RenderResolution;
 			srcWidth = (int)(getOutputFramebufferAspectRatio() * srcHeight);
+			if (srcWidth <= 0 || srcWidth > 16384)
+				srcWidth = srcHeight * 4 / 3;
 			rgb.assign((size_t)srcWidth * srcHeight * 3, 0);
 		}
 		if (width <= 0 || height <= 0)
