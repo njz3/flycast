@@ -35,6 +35,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <unordered_map>
 
 #define LOGJVS(...) DEBUG_LOG(JVS, __VA_ARGS__)
 
@@ -204,6 +205,30 @@ std::shared_ptr<maple_device> MIE::Create() {
 */
 static bool old_coin_chute[4];
 
+// The general outputs a game uses, by JVS output number (from 1), with their use when known: only those are listed
+// in the settings for that game. A game that isn't here gets its board's outputs, by number
+struct GameOutput
+{
+	u32 output;
+	const char *use;	// nullptr: unknown
+};
+
+static const std::vector<GameOutput> *knownGameOutputs()
+{
+	static const std::unordered_map<std::string, std::vector<GameOutput>> games {
+		// The games' OUTPUT TEST, in its order (the drive board's ROLL LEFT and ROLL RIGHT are its commands)
+		{ " JAMBO SAFARI ------------", { { 1, "Start lamp" } } },
+		{ "  18WHEELER", { { 1, "Start lamp" }, { 4, "View lamp" }, { 7, "Horn lamp" } } },
+		{ "THE KING OF ROUTE66", { { 1, "Start lamp" }, { 4, "View lamp" }, { 2, "Horn lamp" }, { 5, "Wiper lamp" } } },
+		{ "CLUB KART IN JAPAN", { { 1, "Start lamp" }, { 4, "View lamp" } } },
+		{ "INITIAL D Ver.3", { { 1, "Start button lamp" }, { 5, "Change view button lamp" } } },
+		// The ones seen changing, in attract and in a race: its OUTPUT TEST wasn't read (multiboard)
+		{ "F355 CHALLENGE JAPAN", { { 1, nullptr }, { 9, nullptr }, { 13, nullptr } } },
+	};
+	auto it = games.find(settings.content.gameId);
+	return it == games.end() ? nullptr : &it->second;
+}
+
 class jvs_io_board
 {
 public:
@@ -224,9 +249,33 @@ public:
 		return digOutput;
 	}
 
+	// What the network output can send, for the settings: the general outputs the game uses, as lamps
+	virtual void describeOutputs() {
+		describeLamps(std::min(output_count, 32u));
+	}
+
 	bool lightgun_as_analog = false;
 
 protected:
+	// The outputs of the game's OUTPUT TEST when known, else the board's first ones, by number
+	static void describeLamps(u32 boardOutputs)
+	{
+		if (const std::vector<GameOutput> *outputs = knownGameOutputs())
+			for (const GameOutput& output : *outputs)
+				describeLamp(output.output, output.use != nullptr ? i18n::T(output.use) : "");
+		else
+			for (u32 output = 1; output <= boardOutputs; output++)
+				describeLamp(output);
+	}
+
+	// JVS general output n, from 1: bit 7 of the first byte for 1, bit 0 for 8, bit 7 of the second byte for 9...
+	static void describeLamp(u32 output, const std::string& meaning = {})
+	{
+		const u32 bit = (output - 1) / 8 * 8 + 7 - (output - 1) % 8;
+		networkOutput.describe("lamp" + std::to_string(bit), NetworkOutput::Type::Bit,
+				meaning.empty() ? strprintf(i18n::T("JVS output %d"), output) : meaning);
+	}
+
 	virtual const char *get_id() = 0;
 	virtual u16 read_analog_axis(int player_num, int player_axis, bool inverted);
 
@@ -703,6 +752,17 @@ protected:
 
 	virtual u8 process(u8 in) = 0;
 
+	// Outputs 15-22 are the drive board's
+	void describeOutputs() override {
+		describeLamps(14);
+	}
+
+	static void describeCommand(const std::string& board)
+	{
+		networkOutput.describe("m3ffb", NetworkOutput::Type::Byte,
+				strprintf(i18n::T("Command to the drive board (%s), as it reads it on outputs 15-22"), board.c_str()));
+	}
+
 	static u8 reverseBits(u8 v)
 	{
 		v = (v & 0xF0) >> 4 | (v & 0x0F) << 4;
@@ -776,6 +836,12 @@ public:
 			jvs_837_13844::deserialize(deser);
 	}
 
+	void describeOutputs() override
+	{
+		describeCommand(i18n::T("Jambo! Safari's program, not emulated"));
+		jvs_837_13844_motor_board::describeOutputs();
+	}
+
 protected:
 	u8 process(u8 in) override
 	{
@@ -847,6 +913,12 @@ public:
 
 	void setTokyoBusMode(bool enable) {
 		tokyoBus = enable;
+	}
+
+	void describeOutputs() override
+	{
+		describeCommand("838-12912-01");
+		jvs_837_13844_motor_board::describeOutputs();
 	}
 
 protected:
@@ -1014,6 +1086,12 @@ public:
 		m3ffbRx = true;
 		out = reverseBits(reply());
 		readDipSwitches();
+	}
+
+	void describeOutputs() override
+	{
+		describeCommand(program == Program::F355 ? "EPR-21867" : "EPR-23000");
+		jvs_837_13844_motor_board::describeOutputs();
 	}
 
 	void serialize(Serializer& ser) const override
@@ -2312,6 +2390,8 @@ MIEImpl::MIEImpl()
 		}
 
 		derby = gameId.substr(0, 6) == " DERBY" && config::MultiboardSlaves >= 2;
+		for (auto& board : io_boards)
+			board->describeOutputs();
 	}
 
 	std::string eeprom_file = getEepromPath();

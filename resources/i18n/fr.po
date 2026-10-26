@@ -2965,3 +2965,109 @@ msgstr "Partage"
 msgid "Not supported on Switch"
 msgstr "Pas supporté sur Switch"
 
+# njz3 fork: network outputs of the running game
+msgid "What this game sends"
+msgstr "Ce que ce jeu envoie"
+
+# njz3 fork: network outputs of the running game
+msgid "Meaning"
+msgstr "Signification"
+
+# njz3 fork: network outputs of the running game
+msgid "Value"
+msgstr "Valeur"
+
+# njz3 fork: network outputs of the running game
+msgid "text"
+msgstr "texte"
+
+# njz3 fork: network outputs of the running game
+msgid "0 or 1"
+msgstr "0 ou 1"
+
+# njz3 fork: network outputs of the running game
+msgid "byte, 00 to FF"
+msgstr "octet, 00 à FF"
+
+# njz3 fork: network outputs of the running game
+msgid "MIDI message, 3 bytes"
+msgstr "message MIDI, 3 octets"
+
+# njz3 fork: network outputs of the running game
+msgid "number"
+msgstr "nombre"
+
+# njz3 fork: network outputs of the running game
+msgid "The game's name, the first line a client gets"
+msgstr "Le nom du jeu, la première ligne que reçoit un client"
+
+# njz3 fork: network outputs of the running game
+msgid "Not described"
+msgstr "Non décrit"
+
+# njz3 fork: network outputs of the running game
+#, c-format
+msgid "JVS output %d"
+msgstr "Sortie JVS %d"
+
+# njz3 fork: network outputs of the running game
+msgid "Start lamp"
+msgstr "Lampe Start"
+
+# njz3 fork: network outputs of the running game
+msgid "View lamp"
+msgstr "Lampe View"
+
+# njz3 fork: network outputs of the running game
+msgid "Horn lamp"
+msgstr "Lampe Horn"
+
+# njz3 fork: network outputs of the running game
+msgid "Wiper lamp"
+msgstr "Lampe Wiper"
+
+# njz3 fork: network outputs of the running game
+msgid "Start button lamp"
+msgstr "Lampe du bouton Start"
+
+# njz3 fork: network outputs of the running game
+msgid "Change view button lamp"
+msgstr "Lampe du bouton Change View"
+
+# njz3 fork: network outputs of the running game
+#, c-format
+msgid "Command to the drive board (%s), as it reads it on outputs 15-22"
+msgstr "Commande à la driveboard (%s), telle qu'elle la lit sur les sorties 15 à 22"
+
+# njz3 fork: network outputs of the running game
+msgid "Jambo! Safari's program, not emulated"
+msgstr "programme de Jambo! Safari, non émulé"
+
+# njz3 fork: network outputs of the running game
+msgid "Message to the 838-14174 servo board: status, then 2 data bytes"
+msgstr "Message à la carte servo 838-14174 : statut, puis 2 octets de données"
+
+# njz3 fork: network outputs of the running game
+msgid "Wheel force: bit 0 the direction (1 negative), bits 1-4 the strength"
+msgstr "Force du volant : bit 0 le sens (1 négatif), bits 1 à 4 l'intensité"
+
+# njz3 fork: network outputs of the running game
+#, c-format
+msgid "Digital output, bit %d"
+msgstr "Sortie numérique, bit %d"
+
+# njz3 fork: network outputs of the running game
+msgid "Tachometer"
+msgstr "Compte-tours"
+
+# njz3 fork: network outputs of the running game
+msgid "Speedometer"
+msgstr "Compteur de vitesse"
+
+# njz3 fork: network outputs of the running game
+msgid "Each line goes as \"name = value\" on TCP port 8000, at each change, the value in hexadecimal; a client that connects gets the game's name first. Value: the last sent."
+msgstr "Chaque ligne part en « nom = valeur » sur le port TCP 8000, à chaque changement, la valeur en hexadécimal ; un client qui se connecte reçoit d'abord le nom du jeu. Valeur : la dernière envoyée."
+
+# njz3 fork: network outputs of the running game
+msgid "The values show while the outputs are on (from the next start of the game once checked)."
+msgstr "Les valeurs s'affichent quand les sorties sont activées (au prochain lancement du jeu, une fois cochées)."

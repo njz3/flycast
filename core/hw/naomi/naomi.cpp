@@ -373,6 +373,9 @@ void initDriveSimSerialPipe()
 {
 	static DriveSimPipe pipe;
 
+	networkOutput.describe("tachometer", NetworkOutput::Type::Number, i18n::T("Tachometer"));
+	networkOutput.describe("speedometer", NetworkOutput::Type::Number, i18n::T("Speedometer"));
+
 	pipe.reset();
 	SCIFSerialPort::Instance().setPipe(&pipe);
 }

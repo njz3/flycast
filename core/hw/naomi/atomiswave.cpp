@@ -21,6 +21,8 @@
 #include "hw/sh4/sh4_sched.h"
 #include "input/haptic.h"
 #include "network/output.h"
+#include "oslib/i18n.h"
+#include "stdclass.h"
 #include "serialize.h"
 
 namespace atomiswave
@@ -34,6 +36,17 @@ static u8 awDigitalOuput;
 void reset() {
 	aw_ram_test_skipped = false;
 	aw_maple_devs = 0;
+}
+
+void describeOutputs()
+{
+	if (atomiswaveForceFeedback)
+		networkOutput.describe("awffb", NetworkOutput::Type::Byte,
+				i18n::T("Wheel force: bit 0 the direction (1 negative), bits 1-4 the strength"));
+	else
+		for (int i = 0; i < 8; i++)
+			networkOutput.describe("lamp" + std::to_string(i), NetworkOutput::Type::Bit,
+					strprintf(i18n::T("Digital output, bit %d"), i));
 }
 
 u32 readMem_A0_006(u32 addr, u32 size)

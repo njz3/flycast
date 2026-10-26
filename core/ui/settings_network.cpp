@@ -21,6 +21,45 @@
 #include "network/ggpo.h"
 #include "network/ice.h"
 #include "imgui_stdlib.h"
+#include "network/output.h"
+
+// What the running game sends to the network output, with the last values: as linuxloader shows it
+static void outputsTable()
+{
+	const std::vector<NetworkOutput::Row> rows = networkOutput.rows();
+	ImGui::TextUnformatted(T("What this game sends"));
+	const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter
+			| ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
+	if (ImGui::BeginTable("##outputs", 4, flags, ImVec2(0.f, ImGui::GetTextLineHeightWithSpacing() * 10.5f)))
+	{
+		ImGui::TableSetupScrollFreeze(0, 1);	// the header stays
+		ImGui::TableSetupColumn(T("Name"), ImGuiTableColumnFlags_WidthFixed);
+		ImGui::TableSetupColumn(T("Type"), ImGuiTableColumnFlags_WidthFixed);
+		ImGui::TableSetupColumn(T("Meaning"), ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupColumn(T("Value"), ImGuiTableColumnFlags_WidthFixed);
+		ImGui::TableHeadersRow();
+		for (const NetworkOutput::Row& row : rows)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::TextUnformatted(row.name.c_str());
+			ImGui::TableSetColumnIndex(1);
+			ImGui::TextUnformatted(row.type.c_str());
+			ImGui::TableSetColumnIndex(2);
+			ImGui::TextUnformatted(row.meaning.c_str());
+			ImGui::SetItemTooltip("%s", row.meaning.c_str());	// whole, when the column cuts it
+			ImGui::TableSetColumnIndex(3);
+			ImGui::TextUnformatted(row.value.c_str());
+		}
+		ImGui::EndTable();
+	}
+	ImGui::PushTextWrapPos(0.f);
+	ImGui::TextDisabled("%s", T("Each line goes as \"name = value\" on TCP port 8000, at each change, the value in "
+			"hexadecimal; a client that connects gets the game's name first. Value: the last sent."));
+	if (!networkOutput.active())
+		ImGui::TextDisabled("%s", T("The values show while the outputs are on (from the next start of the game once checked)."));
+	ImGui::PopTextWrapPos();
+}
 
 void gui_settings_network()
 {
@@ -230,6 +269,11 @@ void gui_settings_network()
 		OptionCheckbox(T("Enable UPnP"), config::EnableUPnP, T("Automatically configure your network router for netplay"));
 		OptionCheckbox(T("Broadcast Digital Outputs"), config::NetworkOutput, T("Broadcast digital outputs and force-feedback state on TCP port 8000. "
 				"Compatible with the \"-output network\" MAME option. Arcade games only."));
+		if (game_started && settings.platform.isArcade())
+		{
+			ImGui::Spacing();
+			outputsTable();
+		}
 		{
 			DisabledScope scope(game_started);
 

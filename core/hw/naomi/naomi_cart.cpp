@@ -46,6 +46,7 @@
 #include "systemsp.h"
 #include "hopper.h"
 #include "midiffb.h"
+#include "atomiswave.h"
 #include "oslib/i18n.h"
 
 using namespace i18n;
@@ -725,6 +726,8 @@ void naomi_cart_LoadRom(const std::string& path, const std::string& fileName, Lo
 			hopper::init();
 		}
 		Naomi_setDmaDelay();
+		if (settings.platform.isAtomiswave())
+			atomiswave::describeOutputs();
 
 #ifdef NAOMI_MULTIBOARD
 		// Not a multiboard game but needs the same desktop environment

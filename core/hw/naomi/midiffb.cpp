@@ -466,6 +466,8 @@ void init()
 {
 	aica::setMidiReceiver(midiReceiver);
 	initialized = true;
+	networkOutput.describe("midiffb", NetworkOutput::Type::Midi,
+			i18n::T("Message to the 838-14174 servo board: status, then 2 data bytes"));
 	if (pollSchedId == -1)
 		pollSchedId = sh4_sched_register(0, pollCallback);
 	reset();

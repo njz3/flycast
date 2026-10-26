@@ -23,6 +23,8 @@ namespace atomiswave
 {
 
 void reset();
+// What the network output can send, for the settings
+void describeOutputs();
 u32 readMem_A0_006(u32 addr, u32 size);
 void writeMem_A0_006(u32 addr, u32 data, u32 size);
 void serialize(Serializer& ser);

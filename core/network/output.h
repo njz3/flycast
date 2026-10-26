@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <deque>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -98,6 +99,8 @@ public:
 #ifndef LIBRETRO
 		agent::output(name, value);
 #endif
+		if (server != INVALID_SOCKET)
+			keep(name, value);
 		if (clients.empty())
 			return;
 		if (!gameNameSent)
@@ -109,6 +112,24 @@ public:
 		snprintf(s, sizeof(s), "%x", value);
 		std::string msg = std::string(name) + " = " + std::string(s) + "\n";	// mame uses \r
 		send(msg);
+	}
+
+	// What the running game can send, shown in the settings: declared by the boards when the game starts
+	enum class Type { Bit, Byte, Midi, Number };
+	void describe(const std::string& name, Type type, const std::string& meaning);
+
+	struct Row
+	{
+		std::string name;
+		std::string type;
+		std::string meaning;
+		std::string value;	// the last one sent, "-" before or when the outputs are off
+	};
+	// The game's name, what the running game was described to send, then what else it sent
+	std::vector<Row> rows();
+	// The outputs are on: the server listens
+	bool active() const {
+		return server != INVALID_SOCKET;
 	}
 
 	// True once a client has sent the given name back
@@ -288,9 +309,26 @@ private:
 			removeClient(sock);
 	}
 
+	// The last value of each name, for the settings
+	void keep(const char *name, u32 value);
+	// A new game: what the previous one sent is forgotten
+	void checkGame();
+
 	sock_t server = INVALID_SOCKET;
 	std::vector<sock_t> clients;
 	bool gameNameSent = false;
+	// For the settings, written by the emulator and read by the interface
+	struct Description
+	{
+		std::string name;
+		Type type;
+		std::string meaning;
+	};
+	std::mutex catalogMutex;
+	std::string catalogGame;
+	std::vector<Description> catalog;
+	std::unordered_map<std::string, u32> lastValues;
+	std::vector<std::string> undescribed;	// in the order they were first sent
 	// Bidirectional mode: what the clients send back
 	std::unordered_map<sock_t, std::string> rxBuffers;
 	std::unordered_map<std::string, std::string> latest;
