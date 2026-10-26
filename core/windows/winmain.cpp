@@ -37,6 +37,7 @@
 #include "sdl/sdl.h"
 #include "emulator.h"
 #include "ui/mainui.h"
+#include "ui/agent.h"
 #include "oslib/directory.h"
 #include "oslib/i18n.h"
 #include "dynlink.h"
@@ -377,6 +378,7 @@ int remove(char const *name)
 int main(int argc, char* argv[])
 {
 	nowide::args _(argc, argv);
+	agent::init(argc, argv);
 
 	WSADATA wsaData;
 	int ret = WSAStartup(MAKEWORD(2, 0), &wsaData);

@@ -7,6 +7,7 @@
 #include "log/LogManager.h"
 #include "emulator.h"
 #include "ui/mainui.h"
+#include "ui/agent.h"
 #include "oslib/directory.h"
 #include "oslib/oslib.h"
 #include "oslib/i18n.h"
@@ -234,6 +235,7 @@ static bool dumpCallback(const google_breakpad::MinidumpDescriptor& descriptor, 
 int main(int argc, char* argv[])
 {
 	selfPath = argv[0];
+	agent::init(argc, argv);
 #if defined(USE_BREAKPAD)
 	google_breakpad::MinidumpDescriptor descriptor("/tmp");
 	google_breakpad::ExceptionHandler eh(descriptor, nullptr, dumpCallback, nullptr, true, -1);

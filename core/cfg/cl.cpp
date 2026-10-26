@@ -35,6 +35,11 @@ static void usage(const char *exe)
 	fprintf(stderr, "                               of each game in a folder of its own, the caches in cache.\n");
 	fprintf(stderr, "                               Also the WriteDir key of the [config] section of emu.cfg.\n");
 #endif
+	fprintf(stderr, "-agent                         agent mode: driven frame by frame by another program on stdin\n");
+	fprintf(stderr, "                               and stdout, as Supermodel's -agent, the window hidden.\n");
+	fprintf(stderr, "-agent-show                    the same with the window shown and the sound.\n");
+	fprintf(stderr, "-no-throttle                   agent mode: as fast as possible instead of real time.\n");
+	fprintf(stderr, "-load-state <file>             agent mode: start from this save state.\n");
 	fprintf(stderr, "-help                          display this help\n");
 }
 

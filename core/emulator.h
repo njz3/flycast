@@ -38,6 +38,9 @@ void flycast_term();
 void dc_exit();
 void dc_savestate(int index = 0, const u8 *pngData = nullptr, u32 pngSize = 0);
 void dc_loadstate(int index = 0);
+// A state in a given file (agent mode). True if done
+bool dc_savestate(const std::string& path);
+bool dc_loadstate(const std::string& path);
 time_t dc_getStateCreationDate(int index);
 void dc_getStateScreenshot(int index, std::vector<u8>& pngData);
 bool dc_savestateAllowed();

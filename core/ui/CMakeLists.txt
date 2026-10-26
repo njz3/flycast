@@ -1,5 +1,7 @@
 if(NOT LIBRETRO)
     target_sources(${PROJECT_NAME} PRIVATE
+            agent.cpp
+            agent.h
             game_scanner.cpp
             game_scanner.h
             imgui_driver.h

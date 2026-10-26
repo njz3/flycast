@@ -34,6 +34,7 @@
 #include "dreamlink.h"
 #include "oslib/i18n.h"
 #include "version.h"
+#include "ui/agent.h"
 #include <unordered_map>
 #include <algorithm>
 #include <mutex>
@@ -909,6 +910,12 @@ bool sdl_recreate_window(u32 flags)
 
 #if !defined(GLES)
 	flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+	// Agent mode: the window is hidden
+	if (agent::hidden())
+	{
+		flags |= SDL_WINDOW_HIDDEN;
+		window_fullscreen = false;
+	}
 	if (window_fullscreen)
 		flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 	else if (window_maximized)
@@ -1064,7 +1071,7 @@ void sdl_window_create()
 void sdl_window_destroy()
 {
 #ifndef __SWITCH__
-	if (!settings.naomi.slave && settings.naomi.drivingSimSlave == 0)
+	if (!settings.naomi.slave && settings.naomi.drivingSimSlave == 0 && !agent::enabled())
 	{
 		get_window_state();
 		config::saveInt("window", "left", windowPos.x);

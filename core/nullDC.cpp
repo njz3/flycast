@@ -12,6 +12,7 @@
 #include "debug/gdb_server.h"
 #include "archive/rzip.h"
 #include "ui/mainui.h"
+#include "ui/agent.h"
 #include "input/gamepad_device.h"
 #include "lua/lua.h"
 #include "stdclass.h"
@@ -83,6 +84,7 @@ int flycast_init(int argc, char* argv[])
 			return -1;
 		}
 		config::parseCommandLine(argc, argv);
+		agent::configure();
 		if (config::loadInt("naomi", "BoardId") != 0)
 		{
 			settings.naomi.multiboard = true;
@@ -181,10 +183,11 @@ bool dc_savestateAllowed() {
 			&& !settings.naomi.multiboard && !MapleLink::StorageEnabled();
 }
 
-void dc_savestate(int index, const u8 *pngData, u32 pngSize)
+// path: this file instead of the slot's (agent mode)
+static bool savestate(int index, const std::string& path, const u8 *pngData, u32 pngSize)
 {
 	if (!dc_savestateAllowed())
-		return;
+		return false;
 
 	lastStateFile.clear();
 
@@ -196,7 +199,7 @@ void dc_savestate(int index, const u8 *pngData, u32 pngSize)
 	{
 		WARN_LOG(SAVESTATE, "Failed to save state - could not malloc %d bytes", (int)ser.size());
 		os_notify(i18n::T("Save state failed - memory full"), 5000);
-    	return;
+    	return false;
 	}
 
 	ser = Serializer(data, ser.size());
@@ -215,7 +218,7 @@ void dc_savestate(int index, const u8 *pngData, u32 pngSize)
 #endif
 	{
 		// regular file savestate
-		filename = hostfs::getSavestatePath(index, true);
+		filename = path.empty() ? hostfs::getSavestatePath(index, true) : path;
 		f = hostfs::storage().openFile(filename.c_str(), "wb");
 	}
 	
@@ -224,7 +227,7 @@ void dc_savestate(int index, const u8 *pngData, u32 pngSize)
 		WARN_LOG(SAVESTATE, "Failed to save state - could not open %s for writing", filename.c_str());
 		os_notify(i18n::T("Cannot open save file"), 5000);
 		free(data);
-    	return;
+    	return false;
 	}
 
 	RZipFile zipFile;
@@ -251,7 +254,7 @@ void dc_savestate(int index, const u8 *pngData, u32 pngSize)
 	free(data);
 	NOTICE_LOG(SAVESTATE, "Saved state to %s size %d", filename.c_str(), (int)ser.size());
 	os_notify(i18n::T("State saved"), 2000);
-	return;
+	return true;
 
 fail:
 	WARN_LOG(SAVESTATE, "Failed to save state - error writing %s", filename.c_str());
@@ -262,12 +265,22 @@ fail:
 		delete f;
 	free(data);
 	// delete failed savestate?
+	return false;
 }
 
-void dc_loadstate(int index)
+void dc_savestate(int index, const u8 *pngData, u32 pngSize) {
+	savestate(index, "", pngData, pngSize);
+}
+
+bool dc_savestate(const std::string& path) {
+	return savestate(0, path, nullptr, 0);
+}
+
+// path: this file instead of the slot's (agent mode)
+static bool loadstate(int index, const std::string& path)
 {
 	if (!dc_savestateAllowed() || settings.raHardcoreMode)
-		return;
+		return false;
 	u32 total_size = 0;
 
 	hostfs::File *f = nullptr;
@@ -283,7 +296,7 @@ void dc_loadstate(int index)
 #endif
 	{
 		// regular file savestate
-		filename = hostfs::getSavestatePath(index, false);
+		filename = path.empty() ? hostfs::getSavestatePath(index, false) : path;
 		f = hostfs::storage().openFile(filename, "rb");
 	}
 	
@@ -291,7 +304,7 @@ void dc_loadstate(int index)
 	{
 		WARN_LOG(SAVESTATE, "Failed to load state - could not open %s for reading", filename.c_str());
 		os_notify(i18n::T("Save state not found"), 2000);
-		return;
+		return false;
 	}
 	SavestateHeader header;
 	if (f->read(&header, sizeof(header), 1) == 1)
@@ -335,7 +348,7 @@ void dc_loadstate(int index)
 			delete f;
 		else
 			zipFile.Close();
-		return;
+		return false;
 	}
 
 	size_t read_size;
@@ -354,7 +367,7 @@ void dc_loadstate(int index)
 		WARN_LOG(SAVESTATE, "Failed to load state - I/O error");
 		os_notify(i18n::T("Failed to load state"), 5000, i18n::T("I/O error"));
 		free(data);
-		return;
+		return false;
 	}
 
 	try {
@@ -367,9 +380,20 @@ void dc_loadstate(int index)
 	} catch (const Deserializer::Exception& e) {
 		ERROR_LOG(SAVESTATE, "%s", e.what());
 		os_notify(i18n::T("Failed to load state"), 5000, e.what());
+		free(data);
+		return false;
 	}
 
 	free(data);
+	return true;
+}
+
+void dc_loadstate(int index) {
+	loadstate(index, "");
+}
+
+bool dc_loadstate(const std::string& path) {
+	return loadstate(0, path);
 }
 
 time_t dc_getStateCreationDate(int index)

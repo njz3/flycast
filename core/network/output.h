@@ -21,6 +21,9 @@
 #include "net_platform.h"
 #include "emulator.h"
 #include "cfg/option.h"
+#ifndef LIBRETRO
+#include "ui/agent.h"
+#endif
 
 #include <algorithm>
 #include <cstdlib>
@@ -92,6 +95,9 @@ public:
 
 	void output(const char *name, u32 value)
 	{
+#ifndef LIBRETRO
+		agent::output(name, value);
+#endif
 		if (clients.empty())
 			return;
 		if (!gameNameSent)

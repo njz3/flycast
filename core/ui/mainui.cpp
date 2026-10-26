@@ -28,6 +28,7 @@
 #include "imgui_driver.h"
 #include "profiler/fc_profiler.h"
 #include "oslib/i18n.h"
+#include "agent.h"
 
 #include <chrono>
 #include <thread>
@@ -66,8 +67,13 @@ bool mainui_rend_frame()
 			return false;
 		}
 		try {
+			// Agent mode: a frame only when a command asks for it
+			if (agent::enabled() && !agent::beforeFrame())
+				return false;
 			if (!emu.render())
 				return false;
+			if (agent::enabled())
+				agent::afterFrame();
 			if (config::ProfilerEnabled && config::ProfilerDrawToGUI)
 				gui_display_profiler();
 		} catch (const RendererException& e) {
