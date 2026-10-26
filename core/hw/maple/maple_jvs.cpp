@@ -682,21 +682,23 @@ protected:
 
 	void write_digital_out(int count, const u8 *data) override
 	{
-		if (count != 3)
+		if (count <= 0)
 			return;
+		if (count >= 3)
+		{
+			// The drive board TX0-7 is connected to outputs 15-22
+			// shifting right by 2 to get the last 8 bits of the output
+			u16 in = (data[1] << 6) | (data[2] >> 2);
+			// reverse
+			in = (in & 0xF0) >> 4 | (in & 0x0F) << 4;
+			in = (in & 0xCC) >> 2 | (in & 0x33) << 2;
+			in = (in & 0xAA) >> 1 | (in & 0x55) << 1;
 
-		// The drive board TX0-7 is connected to outputs 15-22
-		// shifting right by 2 to get the last 8 bits of the output
-		u16 in = (data[1] << 6) | (data[2] >> 2);
-		// reverse
-		in = (in & 0xF0) >> 4 | (in & 0x0F) << 4;
-		in = (in & 0xCC) >> 2 | (in & 0x33) << 2;
-		in = (in & 0xAA) >> 1 | (in & 0x55) << 1;
-
-		out = process(in);
-		// The rest of the bits are for lamps
-		u8 lamps[2] = { data[0], (u8)(data[1] & 0xfc) };
-		jvs_837_13844::write_digital_out(2, lamps);
+			out = process(in);
+		}
+		// The rest of the bits are for lamps. A game can write the first byte only (Jambo! Safari's start lamp)
+		u8 lamps[2] = { data[0], count >= 2 ? (u8)(data[1] & 0xfc) : (u8)0 };
+		jvs_837_13844::write_digital_out(std::min(count, 2), lamps);
 	}
 
 	virtual u8 process(u8 in) = 0;
@@ -749,6 +751,37 @@ protected:
 		}
 
 		return ~out;
+	}
+};
+
+// Jambo! Safari: the DX cabinet has the drive board and the motor board of the Model 3, wired as on F355,
+// with a program of its own. Its commands are only sent to the network output (m3ffb) for now: the board
+// isn't emulated, its lines stay idle unless the network output's client answers (m3ffb_rx)
+class jvs_837_13844_jambo : public jvs_837_13844_motor_board
+{
+public:
+	jvs_837_13844_jambo(u8 node_id, MIEImpl *parent, int first_player = 0)
+		: jvs_837_13844_motor_board(node_id, parent, first_player)
+	{
+		m3ffbRx = true;
+		out = 0xff;
+	}
+
+	void deserialize(Deserializer& deser) override
+	{
+		if (deser.version() >= Deserializer::V65)
+			jvs_837_13844_motor_board::deserialize(deser);
+		else
+			// The 837-13551 I/O board before
+			jvs_837_13844::deserialize(deser);
+	}
+
+protected:
+	u8 process(u8 in) override
+	{
+		in = ~in;
+		networkOutput.output("m3ffb", in);
+		return 0xff;
 	}
 };
 
@@ -2227,6 +2260,11 @@ MIEImpl::MIEImpl()
 		{
 			INFO_LOG(MAPLE, "Enabling specific JVS setup for game %s", gameId.c_str());
 			io_boards.push_back(std::make_unique<jvs_837_13844_wrungp>(1, this));
+		}
+		else if (gameId == " JAMBO SAFARI ------------")
+		{
+			INFO_LOG(MAPLE, "Enabling specific JVS setup for game %s", gameId.c_str());
+			io_boards.push_back(std::make_unique<jvs_837_13844_jambo>(1, this));
 		}
 		else if (gameId == "  18WHEELER")
 		{

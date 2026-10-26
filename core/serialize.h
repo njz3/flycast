@@ -55,7 +55,8 @@ public:
 		V62,
 		V63,	// njz3 fork: midiffb (838-14174 servo board) and F355 drive board states
 		V64,	// njz3 fork: 18 Wheeler drive board, moved spring reference
-		Current = V64,
+		V65,	// njz3 fork: Jambo! Safari on the 837-13844 I/O board
+		Current = V65,
 
 		Next = Current + 1,
 	};
