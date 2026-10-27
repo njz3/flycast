@@ -373,6 +373,8 @@ extern Option<int> DriveBoardSpringStrength;
 // Gain in percent of the arcade force feedback (drive boards, MIDI servo board), up to 300:
 // Initial D needs 265% to reach the full force of a wheel
 extern Option<int> ForceFeedbackGain;
+// The device playing player 1's force feedback: AUTO (the one on player 1's port) or its name
+extern OptionString ForceFeedbackDevice;
 extern Option<bool, false> FetchBoxart;
 extern Option<bool, false> BoxartDisplayMode;
 extern Option<int, false> UIScaling;

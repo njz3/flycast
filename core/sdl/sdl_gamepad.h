@@ -18,6 +18,7 @@
 #include "input/gamepad_device.h"
 #include "input/mouse.h"
 #include "sdl.h"
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <map>
@@ -98,6 +99,20 @@ public:
 			gamepad->startGameHaptic();
 	}
 
+	// Player 1's force feedback goes to the device the ForceFeedbackDevice option names, whatever port its axes are
+	// read for: the first connected one with force feedback whose name is the same, case and surrounding spaces
+	// aside. -1: AUTO, or that device isn't connected, so the device on player 1's port
+	static SDL_JoystickID ChosenForceFeedbackDevice();
+	static SDL_JoystickID GetForceFeedbackDevice() {
+		return ffbDevice;
+	}
+	static void SetForceFeedbackDevice(SDL_JoystickID device) {
+		ffbDevice = device;
+	}
+	// The connected devices with force feedback, each name once
+	static std::vector<std::string> ForceFeedbackDeviceNames();
+	static bool SameDeviceName(const std::string& a, const std::string& b);
+
 protected:
 	u64 vib_stop_time = 0;
 	SDL_JoystickID sdl_joystick_instance;
@@ -106,10 +121,13 @@ private:
 	template<typename Func, typename... Args>
 	static void applyToPort(int port, Func func, Args&&... args)
 	{
+		const SDL_JoystickID device = port == 0 ? ffbDevice.load() : -1;
 		for (auto &[k, gamepad] : sdl_gamepads)
-			if (gamepad->maple_port() == port)
+			if (device != -1 ? gamepad->sdl_joystick_instance == device : gamepad->maple_port() == port)
 				((*gamepad).*func)(std::forward<Args>(args)...);
 	}
+	// Written by the UI thread, read by the emulator's
+	static std::atomic<SDL_JoystickID> ffbDevice;
 	u16 getRumbleIntensity(float power) const;
 	void doRumble(float power, u32 duration_ms);
 

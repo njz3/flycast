@@ -19,6 +19,7 @@
 #include "sdl_mappingparser.h"
 #include "oslib/i18n.h"
 #include "oslib/oslib.h"
+#include "cfg/option.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -26,6 +27,41 @@
 #include <string>
 
 std::map<SDL_JoystickID, std::shared_ptr<SDLGamepad>> SDLGamepad::sdl_gamepads;
+std::atomic<SDL_JoystickID> SDLGamepad::ffbDevice { -1 };
+
+bool SDLGamepad::SameDeviceName(const std::string& a, const std::string& b)
+{
+	const auto trim = [](const std::string& s) {
+		const size_t first = s.find_first_not_of(" \t");
+		return first == std::string::npos ? std::string() : s.substr(first, s.find_last_not_of(" \t") - first + 1);
+	};
+	const std::string ta = trim(a);
+	const std::string tb = trim(b);
+	return ta.size() == tb.size()
+			&& std::equal(ta.begin(), ta.end(), tb.begin(), [](char x, char y) { return std::tolower((u8)x) == std::tolower((u8)y); });
+}
+
+SDL_JoystickID SDLGamepad::ChosenForceFeedbackDevice()
+{
+	const std::string& name = config::ForceFeedbackDevice;
+	if (name.empty() || SameDeviceName(name, "AUTO"))
+		return -1;
+	// sdl_gamepads is ordered by instance: the first one connected comes first
+	for (auto &[k, gamepad] : sdl_gamepads)
+		if (gamepad->haptic != nullptr && SameDeviceName(gamepad->name(), name))
+			return gamepad->sdl_joystick_instance;
+	return -1;
+}
+
+std::vector<std::string> SDLGamepad::ForceFeedbackDeviceNames()
+{
+	std::vector<std::string> names;
+	for (auto &[k, gamepad] : sdl_gamepads)
+		if (gamepad->haptic != nullptr
+				&& std::none_of(names.begin(), names.end(), [&gamepad](const std::string& n) { return SameDeviceName(n, gamepad->name()); }))
+			names.push_back(gamepad->name());
+	return names;
+}
 
 template<bool Arcade = false, bool Gamepad = false>
 class DefaultInputMapping : public InputMapping

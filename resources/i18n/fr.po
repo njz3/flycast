@@ -3071,3 +3071,23 @@ msgstr "Chaque ligne part en « nom = valeur » sur le port TCP 8000, à chaque 
 # njz3 fork: network outputs of the running game
 msgid "The values show while the outputs are on (from the next start of the game once checked)."
 msgstr "Les valeurs s'affichent quand les sorties sont activées (au prochain lancement du jeu, une fois cochées)."
+
+# njz3 fork: force feedback device
+msgid "Force Feedback Device"
+msgstr "Dispositif de retour de force"
+
+# njz3 fork: force feedback device
+msgid "Automatic"
+msgstr "Automatique"
+
+# njz3 fork: force feedback device
+msgid " (not connected)"
+msgstr " (non connecté)"
+
+# njz3 fork: force feedback device
+msgid "The device playing the force feedback. Automatic: the one player 1's controls are assigned to. A device chosen here plays it alone, whatever device the wheel is read from. It is saved by its name (ForceFeedbackDevice in the [naomi] section, AUTO or the name); if it isn't connected, Automatic applies."
+msgstr "Le dispositif qui joue le retour de force. Automatique : celui auquel sont attribuées les commandes du joueur 1. Un dispositif choisi ici le joue seul, quel que soit le dispositif d'où le volant est lu. Il est enregistré par son nom (ForceFeedbackDevice dans la section [naomi], AUTO ou le nom) ; s'il n'est pas connecté, Automatique s'applique."
+
+# njz3 fork: force feedback device
+msgid "Force Feedback"
+msgstr "Retour de force"

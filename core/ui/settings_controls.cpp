@@ -28,6 +28,7 @@
 
 #if defined(USE_SDL)
 #include "sdl/dreamlink.h" // For USE_DREAMCASTCONTROLLER
+#include "sdl/sdl.h"
 #endif
 
 static float calcComboWidth(const char *labels[], size_t size)
@@ -999,6 +1000,59 @@ static void gamepadSettingsPopup(const std::shared_ptr<GamepadDevice>& gamepad)
 	}
 }
 
+// The force feedback of the arcade games: the device playing it, its gain, the drive board's DIP switches
+static void forceFeedbackSettings()
+{
+#ifdef USE_SDL
+	{
+		// The device playing the force feedback: AUTO, or a connected device by its name
+		const std::vector<std::string> devices = sdl_forceFeedbackDevices();
+		const std::string current = config::ForceFeedbackDevice;
+		const bool automatic = current.empty() || sdl_sameDeviceName(current, "AUTO");
+		std::string preview = automatic ? T("Automatic") : current;
+		if (!automatic && std::none_of(devices.begin(), devices.end(), [&current](const std::string& d) { return sdl_sameDeviceName(d, current); }))
+			preview += T(" (not connected)");
+		if (ImGui::BeginCombo(T("Force Feedback Device"), preview.c_str(), ImGuiComboFlags_None))
+		{
+			if (ImGui::Selectable(T("Automatic"), automatic))
+			{
+				config::ForceFeedbackDevice = "AUTO";
+				sdl_updateForceFeedbackDevice();
+			}
+			for (const std::string& device : devices)
+				if (ImGui::Selectable(device.c_str(), !automatic && sdl_sameDeviceName(device, current)))
+				{
+					config::ForceFeedbackDevice = device;
+					sdl_updateForceFeedbackDevice();
+				}
+			ImGui::EndCombo();
+		}
+		ImGui::SameLine();
+		ShowHelpMarker(T("The device playing the force feedback. Automatic: the one player 1's controls are assigned to. "
+				"A device chosen here plays it alone, whatever device the wheel is read from. It is saved by its name "
+				"(ForceFeedbackDevice in the [naomi] section, AUTO or the name); if it isn't connected, Automatic applies."));
+	}
+#endif
+	OptionSlider(T("Force Feedback Gain"), config::ForceFeedbackGain, 0, 300,
+			T("Scale the force feedback of the arcade games: drive boards and MIDI servo board. "
+			  "The effects are capped at the maximum force of the wheel. "
+			  "At 100%, the force is the real cabinet's, which isn't the maximum: Initial D uses at most 38% "
+			  "of its servo board's force (50% when holding the wheel back). It needs 265% to reach the full force "
+			  "of the wheel, hence up to 300%"), "%d%%");
+	ImGui::Text("%s", T("Drive Board (F355 Challenge, 18 Wheeler):"));
+	ImGui::Indent();
+	OptionCheckbox(T("Centering Spring"), config::DriveBoardSpring,
+			T("DIP switches 2 of the drive board: the spring pulling the wheel back to the center"));
+	OptionCheckbox(T("Reverse Torque"), config::DriveBoardReverse,
+			T("DIP switch 1 of the F355 drive board: reverse the torque, for a wheel turning the wrong way"));
+	{
+		DisabledScope scope(!config::DriveBoardSpring);
+		OptionSlider(T("Spring Strength"), config::DriveBoardSpringStrength, 0, 150,
+				T("Not on the real board: scale the centering spring"), "%d%%");
+	}
+	ImGui::Unindent();
+}
+
 void gui_settings_controls(std::array<bool, 4>& mapleDevicesChanges, std::array<std::array<bool, 2>, 4>& expDevicesChanges)
 {
 	uiLanguageHandler.init();
@@ -1103,6 +1157,10 @@ void gui_settings_controls(std::array<bool, 4>& mapleDevicesChanges, std::array<
 #if defined(_WIN32) && !defined(TARGET_UWP)
 	OptionCheckbox(T("Use Raw Input"), config::UseRawInput, T("Supports multiple pointing devices (mice, light guns) and keyboards"));
 #endif
+
+	ImGui::Spacing();
+	header(T("Force Feedback"));
+	forceFeedbackSettings();
 
 	ImGui::Spacing();
 	header(T("Dreamcast Devices"));

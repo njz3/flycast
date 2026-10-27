@@ -105,6 +105,7 @@ static void sdl_open_joystick(int index)
 		std::shared_ptr<SDLGamepad> gamepad = std::make_shared<SDLGamepad>(index < MAPLE_PORTS ? index : -1, index, pJoystick);
 #endif
 		SDLGamepad::AddSDLGamepad(gamepad);
+		sdl_updateForceFeedbackDevice();
 	} catch (const FlycastException& e) {
 	}
 }
@@ -115,7 +116,10 @@ static void sdl_close_joystick(SDL_JoystickID instance)
 		return;
 	std::shared_ptr<SDLGamepad> gamepad = SDLGamepad::GetSDLGamepad(instance);
 	if (gamepad != NULL)
+	{
 		gamepad->close();
+		sdl_updateForceFeedbackDevice();
+	}
 }
 
 static void setWindowTitleGame()
@@ -186,6 +190,8 @@ static void emuEventCallback(Event event, void *)
 	{
 	case Event::Start:
 		SDLGamepad::StartGameHaptic();
+		// The game's own settings may name another device
+		sdl_updateForceFeedbackDevice();
 		break;
 	case Event::Terminate:
 		SDL_SetWindowTitle(window, WindowTitle.c_str());
@@ -1486,6 +1492,7 @@ static bool handleBarcodeScanner(const SDL_Event& event)
 static float torque;
 static float springSat;
 static float springSpeed;
+static float springCenter;
 static float damperParam;
 static float damperSpeed;
 static float rumblePower;
@@ -1502,6 +1509,7 @@ void sdl_setSpring(int port, float saturation, float speed, float center)
 {
 	springSat = saturation;
 	springSpeed = speed;
+	springCenter = center;
 	SDLGamepad::SetSpring(port, saturation, speed, center);
 }
 
@@ -1527,6 +1535,31 @@ void sdl_stopHaptic(int port)
 	damperParam = 0.f;
 	damperSpeed = 0.f;
 	SDLGamepad::StopHaptic(port);
+}
+
+void sdl_updateForceFeedbackDevice()
+{
+	const SDL_JoystickID device = SDLGamepad::ChosenForceFeedbackDevice();
+	if (device == SDLGamepad::GetForceFeedbackDevice())
+		return;
+	// The effects stop where they were played and start again on the new device
+	SDLGamepad::StopHaptic(0);
+	SDLGamepad::SetForceFeedbackDevice(device);
+	INFO_LOG(INPUT, "Force feedback device: %d", device);
+	if (springSat != 0.f || springSpeed != 0.f)
+		SDLGamepad::SetSpring(0, springSat, springSpeed, springCenter);
+	if (damperParam != 0.f || damperSpeed != 0.f)
+		SDLGamepad::SetDamper(0, damperParam, damperSpeed);
+	if (gameRunning && torque != 0.f)
+		SDLGamepad::SetTorque(0, torque);
+}
+
+std::vector<std::string> sdl_forceFeedbackDevices() {
+	return SDLGamepad::ForceFeedbackDeviceNames();
+}
+
+bool sdl_sameDeviceName(const std::string& a, const std::string& b) {
+	return SDLGamepad::SameDeviceName(a, b);
 }
 
 void pauseHaptic() {
