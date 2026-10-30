@@ -286,6 +286,7 @@ elseif(WIN32)
 		set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 	endif()
 elseif(APPLE)
+	set(USE_OPENMP OFF CACHE BOOL "Force openmp off" FORCE)
 	add_executable(${PROJECT_NAME} MACOSX_BUNDLE core/emulator.cpp)
 else()
 	add_executable(${PROJECT_NAME} core/emulator.cpp)
@@ -462,10 +463,6 @@ if(USE_BREAKPAD AND NOT LIBRETRO)
 endif()
 
 if(USE_OPENMP)
-	if(APPLE AND IS_DIRECTORY "/opt/homebrew/opt/libomp")
-		list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/libomp")
-		message(STATUS "Found and using Homebrew libomp hint.")
-	endif()
 	find_package(OpenMP)
 	if(OpenMP_CXX_FOUND)
 		if(MINGW)
@@ -1557,7 +1554,7 @@ if(NINTENDO_SWITCH)
 			COMMAND ${CMAKE_COMMAND} -E make_directory
 				combined-objs/xxhash combined-objs/chdr combined-objs/zip
 				combined-objs/zstd combined-objs/elf combined-objs/tinygettext
-				combined-objs/res
+				combined-objs/res combined-objs/libjuice
 			COMMAND ${CMAKE_COMMAND} -E chdir combined-objs/xxhash
 				${CMAKE_AR} -x $<TARGET_FILE:xxHash::xxhash>
 			COMMAND ${CMAKE_COMMAND} -E chdir combined-objs/chdr
@@ -1572,6 +1569,8 @@ if(NINTENDO_SWITCH)
 				${CMAKE_AR} -x $<TARGET_FILE:tinygettext::tinygettext>
 			COMMAND ${CMAKE_COMMAND} -E chdir combined-objs/res
 				${CMAKE_AR} -x $<TARGET_FILE:flycast::res>
+			COMMAND ${CMAKE_COMMAND} -E chdir combined-objs/libjuice
+				${CMAKE_AR} -x $<TARGET_FILE:LibJuice::LibJuiceStatic>
 			COMMAND ${CMAKE_AR} -rs flycast_libretro_libnx.a combined-objs/*/*.o
 			COMMAND ${CMAKE_COMMAND} -E rm -rf combined-objs
 			WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}
