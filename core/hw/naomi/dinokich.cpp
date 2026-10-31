@@ -23,6 +23,7 @@
 #include "dinokich_card.h"
 #include "cfg/option.h"
 #include "oslib/oslib.h"
+#include "stdclass.h"
 #include <algorithm>
 
 namespace systemsp
@@ -126,7 +127,7 @@ DinokichCardReader::DinokichCardReader(SerialPort *port, int index, const std::s
 
 	for (Slot& slot : slots_)
 	{
-		FILE *f = nowide::fopen(getCardDataPath(index).c_str(), "rb");
+		FILE *f = nowide::fopen(get_save_read_path(getCardDataPath(index)).c_str(), "rb");
 		if (f != nullptr)
 		{
 			if (fread(slot.eeprom.data(), 1, slot.eeprom.size(), f) != slot.eeprom.size())

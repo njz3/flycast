@@ -128,7 +128,7 @@ public:
 	{
 		port->setPipe(this);
 
-		FILE *f = nowide::fopen(getCardDataPath().c_str(), "rb");
+		FILE *f = nowide::fopen(get_save_read_path(getCardDataPath()).c_str(), "rb");
 		if (f != nullptr)
 		{
 			if (fread(cardData.data(), 1, cardData.size(), f) != cardData.size())
@@ -2212,7 +2212,7 @@ void SystemSpCart::Init(LoadProgress *progress, std::vector<u8> *digest)
 	}
 	region = config::Region;
 	// Region must be set before loading the eeprom
-	if (!eeprom.Load(getEepromPath()) && naomi_default_eeprom != nullptr)
+	if (!eeprom.Load(get_save_read_path(getEepromPath())) && naomi_default_eeprom != nullptr)
 		memcpy(eeprom.data, naomi_default_eeprom, 128);
 
 	// dinoki4 doesn't use rfid chips. dinokich and loveber3cn use a different reader/writer protocol

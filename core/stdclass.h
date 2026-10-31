@@ -84,11 +84,16 @@ std::string get_game_save_prefix();
 // --write-dir: the one folder Flycast writes to, with the config at its root, a folder per game
 // for its saves and a cache folder. The saves found in the original data dir are copied to a game's
 // folder at its first use.
-void set_write_dir(const std::string& dir, const std::string& originalDataDir);
+// A write dir that can't be written to is rejected: the writes still go to it and fail, nothing is written next to
+// the exe, and the saves are read in the original data dir.
+void set_write_dir(const std::string& dir, const std::string& originalDataDir, bool rejected = false);
 // the write dir with a trailing separator, or empty when not set
 const std::string& get_write_dir();
 // returns the folder of the current game's saves: its own folder in the write dir, or the data dir
 std::string get_game_save_dir();
+// returns the path to read a game save from: the path itself, or the same file in the original data dir when the
+// write dir is rejected
+std::string get_save_read_path(const std::string& path);
 // returns the position of the last path separator, or string::npos if none
 size_t get_last_slash_pos(const std::string& path);
 

@@ -23,6 +23,7 @@
 #include "reios/reios.h"
 #include "oslib/oslib.h"
 #include "oslib/resources.h"
+#include "stdclass.h"
 
 extern bool bios_loaded;
 
@@ -258,7 +259,7 @@ static bool loadFlash()
 	}
 	else if (!settings.naomi.slave)
 	{
-		const std::string path = getArcadeFlashPath();
+		const std::string path = get_save_read_path(getArcadeFlashPath());
 		rc = sys_nvmem->Load(path);
 		if (!rc)
 		{
@@ -284,7 +285,7 @@ static bool loadFlash()
 
 	if (settings.platform.isAtomiswave())
 	{
-		rc = sys_rom->Load(hostfs::getArcadeFlashPath() + ".nvmem2");
+		rc = sys_rom->Load(get_save_read_path(hostfs::getArcadeFlashPath() + ".nvmem2"));
 		// TODO default AW .nvmem2
 		if (!rc)
 			loadDefaultAWBiosFlash();

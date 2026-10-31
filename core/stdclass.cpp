@@ -24,6 +24,7 @@ static std::vector<std::string> system_config_dirs;
 static std::vector<std::string> system_data_dirs;
 static std::string write_dir;
 static std::string original_data_dir;
+static bool write_dir_rejected;
 
 const std::string defaultWs(" \0", 2);
 
@@ -144,12 +145,13 @@ std::string get_game_save_prefix()
 	return get_game_save_dir() + settings.content.fileName;
 }
 
-void set_write_dir(const std::string& dir, const std::string& originalDataDir)
+void set_write_dir(const std::string& dir, const std::string& originalDataDir, bool rejected)
 {
 	write_dir = dir;
 	appendPathSep(write_dir);
 	original_data_dir = originalDataDir;
 	appendPathSep(original_data_dir);
+	write_dir_rejected = rejected;
 }
 
 const std::string& get_write_dir() {
@@ -216,11 +218,20 @@ std::string get_game_save_dir()
 		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'))
 			c = '_';
 	std::string dir = write_dir + game;
-	const bool created = !file_exists(dir) && make_directory(dir);
+	// Nothing to create nor copy in a rejected write dir: the saves are read where they are
+	const bool created = !write_dir_rejected && !file_exists(dir) && make_directory(dir);
 	appendPathSep(dir);
 	if (created)
 		copyOriginalSaves(dir);
 	return dir;
+}
+
+std::string get_save_read_path(const std::string& path)
+{
+	if (!write_dir_rejected || path.compare(0, write_dir.size(), write_dir) != 0)
+		return path;
+	// <write dir>\<game>\<file>: the file as it would have been copied from the original data dir
+	return original_data_dir + path.substr(get_last_slash_pos(path) + 1);
 }
 
 bool make_directory(const std::string& path)

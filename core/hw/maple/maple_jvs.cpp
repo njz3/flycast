@@ -2397,7 +2397,10 @@ MIEImpl::MIEImpl()
 	std::string eeprom_file = getEepromPath();
 	FILE* f = nullptr;
 	if (!eeprom_file.empty())
+	{
+		eeprom_file = get_save_read_path(eeprom_file);
 		f = nowide::fopen(eeprom_file.c_str(), "rb");
+	}
 	if (f != nullptr)
 	{
 		if (std::fread(eeprom, 1, 0x80, f) != 0x80)
@@ -3504,7 +3507,7 @@ void RFIDReaderWriterImpl::loadCard()
 {
 	if (transientData)
 		return;
-	std::string path = getCardPath();
+	std::string path = get_save_read_path(getCardPath());
 	FILE *fp = nowide::fopen(path.c_str(), "rb");
 	if (fp == nullptr)
 	{

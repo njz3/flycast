@@ -248,7 +248,8 @@ std::string getSavestatePath(int index, bool writable)
 	{
 		// In the game's folder, where its savestates were copied
 		lastFile.clear();
-		return get_game_save_dir() + state_file;
+		const std::string path = get_game_save_dir() + state_file;
+		return writable ? path : get_save_read_path(path);
 	}
 	if (writable) {
 		lastFile.clear();

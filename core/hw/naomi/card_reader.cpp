@@ -49,7 +49,7 @@ protected:
 
 	bool loadCard(u8 *cardData, u32 len)
 	{
-		std::string path = hostfs::getArcadeFlashPath() + ".card";
+		std::string path = get_save_read_path(hostfs::getArcadeFlashPath() + ".card");
 		FILE *fp = nowide::fopen(path.c_str(), "rb");
 		if (fp == nullptr)
 			return false;

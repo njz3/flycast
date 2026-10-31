@@ -111,8 +111,8 @@ static bool canWriteTo(const std::string& dir)
 	return written;
 }
 
-// The write dir that can't be written to, and so isn't used, and why. Logged once the log file is open, and told when the
-// game starts, in the same words as Supermodel
+// The write dir that can't be written to, and why. Logged once the logs are set up, and told when the game starts, in
+// the same words as Supermodel
 static std::string unwritableWriteDir;
 static const char *unwritableReason;
 
@@ -122,7 +122,8 @@ static void notifyUnwritableWriteDir(Event event, void *)
 	if (notified)
 		return;
 	notified = true;
-	const std::string details = unwritableWriteDir + "\n" + i18n::T("The settings and the game saves are read and written in the usual folders instead.");
+	const std::string details = unwritableWriteDir + "\n"
+			+ i18n::T("Nothing is saved: the settings and the game saves are read from the usual folders and not written.");
 	os_notify(i18n::T("Cannot write to the write folder"), 20000, details.c_str());
 }
 #endif
@@ -153,23 +154,26 @@ static void setupPath(const std::string& writeDirOption)
 			flycast::mkdir(writeDir.substr(0, sep).c_str(), 0755);
 		flycast::mkdir(writeDir.c_str(), 0755);
 		const char last = writeDir.back();
-		if (canWriteTo(last == '\\' || last == '/' ? writeDir : writeDir + "\\"))
+		// Rejected when it can't be written to: the writes still go there and fail. Nothing is written next to the exe,
+		// whose files are templates, but they're read: the game keeps its settings and its saves
+		const bool rejected = !canWriteTo(last == '\\' || last == '/' ? writeDir : writeDir + "\\");
+		if (rejected)
 		{
-			set_write_dir(writeDir, fn + "data\\");
-			// The config and the mappings are read next to the exe until they're saved in the write dir
-			set_user_config_dir(get_write_dir());
-			add_system_config_dir(fn);
-			const std::string cacheDir = get_write_dir() + "cache\\";
-			set_user_data_dir(cacheDir);
-			flycast::mkdir(cacheDir.c_str(), 0755);
-			// The BIOS
-			add_system_data_dir(fn + "data\\");
-			add_system_data_dir(fn);
-			return;
+			unwritableWriteDir = writeDir;
+			unwritableReason = file_exists(writeDir) ? "a file can't be written in it" : "it can't be created";
 		}
-		// Not used: as without it, the game keeps its saves and its settings, as Supermodel does
-		unwritableWriteDir = writeDir;
-		unwritableReason = file_exists(writeDir) ? "a file can't be written in it" : "it can't be created";
+		set_write_dir(writeDir, fn + "data\\", rejected);
+		// The config and the mappings are read next to the exe until they're saved in the write dir
+		set_user_config_dir(get_write_dir());
+		add_system_config_dir(fn);
+		const std::string cacheDir = get_write_dir() + "cache\\";
+		set_user_data_dir(cacheDir);
+		if (!rejected)
+			flycast::mkdir(cacheDir.c_str(), 0755);
+		// The BIOS
+		add_system_data_dir(fn + "data\\");
+		add_system_data_dir(fn);
+		return;
 	}
 	set_user_config_dir(fn);
 	add_system_data_dir(fn);
@@ -458,7 +462,7 @@ int main(int argc, char* argv[])
 #ifndef TARGET_UWP
 	if (!unwritableWriteDir.empty())
 	{
-		ERROR_LOG(COMMON, "The write folder %s is not used: %s. The settings and the game saves are read and written in the usual folders",
+		ERROR_LOG(COMMON, "The write folder %s cannot be written: %s. The settings and the game saves are read from the usual folders and nothing is saved",
 				unwritableWriteDir.c_str(), unwritableReason);
 		// Shown over the game: on a cabinet, no one would close a message box
 		EventManager::listen(Event::Resume, notifyUnwritableWriteDir);

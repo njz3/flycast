@@ -3097,5 +3097,5 @@ msgid "Cannot write to the write folder"
 msgstr "Impossible d'écrire dans le dossier d'écriture"
 
 # njz3 fork: write folder that can't be written to
-msgid "The settings and the game saves are read and written in the usual folders instead."
-msgstr "Les réglages et les sauvegardes des jeux sont lus et écrits dans les dossiers habituels à la place."
+msgid "Nothing is saved: the settings and the game saves are read from the usual folders and not written."
+msgstr "Rien n'est sauvegardé : les réglages et les sauvegardes des jeux sont lus dans les dossiers habituels et ne sont pas écrits."

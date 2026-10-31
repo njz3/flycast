@@ -25,6 +25,7 @@
 #include "oslib/oslib.h"
 #include "emulator.h"
 #include "cfg/option.h"
+#include "stdclass.h"
 
 #include <array>
 #include <vector>
@@ -43,7 +44,7 @@ public:
 		sh4_sched_request(schedId, SCHED_CYCLES);
 		EventManager::listen(Event::Pause, handleEvent, this);
 
-		std::string path = getConfigFileName();
+		std::string path = get_save_read_path(getConfigFileName());
 		FILE *f = fopen(path.c_str(), "rb");
 		if (f == nullptr) {
 			INFO_LOG(NAOMI, "Hopper config not found at %s", path.c_str());
