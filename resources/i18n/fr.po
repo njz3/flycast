@@ -3091,3 +3091,11 @@ msgstr "Le dispositif qui joue le retour de force. Automatique : celui auquel so
 # njz3 fork: force feedback device
 msgid "Force Feedback"
 msgstr "Retour de force"
+
+# njz3 fork: write folder that can't be written to
+msgid "Cannot write to the write folder"
+msgstr "Impossible d'écrire dans le dossier d'écriture"
+
+# njz3 fork: write folder that can't be written to
+msgid "The settings and the game saves are read and written in the usual folders instead."
+msgstr "Les réglages et les sauvegardes des jeux sont lus et écrits dans les dossiers habituels à la place."
